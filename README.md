@@ -1,3 +1,5 @@
+<p align="center"><img src="icon.svg" width="128" height="128" alt="TelemetrySlayer"></p>
+
 # TelemetrySlayer
 
 ![Version](https://img.shields.io/badge/version-1.0.1-blue)
