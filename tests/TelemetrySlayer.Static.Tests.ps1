@@ -19,6 +19,11 @@ Describe 'TelemetrySlayer static safety checks' {
 
     It 'captures exact restore state before mutable action classes' {
         $script:ScriptText | Should -Match 'restore-latest\.json'
+        $script:ScriptText | Should -Match 'Join-Path \$programDataRoot ''Backups'''
+        $script:ScriptText | Should -Match 'function RunPreflightBackup'
+        $script:ScriptText | Should -Match 'Checkpoint-Computer'
+        $script:ScriptText | Should -Match 'reg\.exe'
+        $script:ScriptText | Should -Match 'no recovery artifact could be written; Apply blocked'
         $script:ScriptText | Should -Match 'function CaptureRegValue'
         $script:ScriptText | Should -Match 'function CaptureSvc'
         $script:ScriptText | Should -Match 'function CaptureTask'

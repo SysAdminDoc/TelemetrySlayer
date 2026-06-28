@@ -2,6 +2,13 @@
 
 All notable changes to TelemetrySlayer will be documented in this file.
 
+## [v1.3.0] - 2026-06-28
+
+- Added preflight recovery bundles under `%ProgramData%\TelemetrySlayer\Backups`.
+- Exported managed registry paths before Apply and recorded missing/failed exports in a manifest.
+- Added system restore point attempts with unsupported/failure cases logged without blocking valid backup artifacts.
+- Blocked Apply when no recovery artifact can be written.
+
 ## [v1.2.0] - 2026-06-28
 
 - Added exact Undo snapshots under `%ProgramData%\TelemetrySlayer\State`.

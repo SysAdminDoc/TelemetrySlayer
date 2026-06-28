@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# TelemetrySlayer v1.2.0
+# TelemetrySlayer v1.3.0
 # Disables Microsoft telemetry, data collection, and related bloat on Windows 10/11
 
 # --- Auto-elevate ---
@@ -22,7 +22,7 @@ Add-Type -Name Win -Namespace Native -MemberDefinition @'
 $xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="TelemetrySlayer v1.2.0" Width="820" Height="750"
+        Title="TelemetrySlayer v1.3.0" Width="820" Height="750"
         WindowStartupLocation="CenterScreen" Background="#0d1117"
         ResizeMode="CanResizeWithGrip" MinWidth="750" MinHeight="600">
     <Window.Resources>
@@ -710,23 +710,52 @@ $btnApply.Add_Click({
             $logQueue.Enqueue("[$ts] $msg")
         }
 
-        $stateRoot = Join-Path $env:ProgramData 'TelemetrySlayer\State'
+        $programDataRoot = Join-Path $env:ProgramData 'TelemetrySlayer'
+        $stateRoot = Join-Path $programDataRoot 'State'
+        $backupRoot = Join-Path $programDataRoot 'Backups'
         try {
+            if (-not (Test-Path -LiteralPath $programDataRoot)) {
+                New-Item -Path $programDataRoot -ItemType Directory -Force | Out-Null
+            }
             if (-not (Test-Path -LiteralPath $stateRoot)) {
                 New-Item -Path $stateRoot -ItemType Directory -Force | Out-Null
+            }
+            if (-not (Test-Path -LiteralPath $backupRoot)) {
+                New-Item -Path $backupRoot -ItemType Directory -Force | Out-Null
             }
             $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
             $restorePath = Join-Path $stateRoot "restore-$stamp.json"
             $latestRestorePath = Join-Path $stateRoot 'restore-latest.json'
+            $backupPath = Join-Path $backupRoot "backup-$stamp"
+            $registryBackupPath = Join-Path $backupPath 'registry'
+            New-Item -Path $registryBackupPath -ItemType Directory -Force | Out-Null
+            $restoreBackupPath = Join-Path $backupPath 'restore-snapshot.json'
+            $manifestPath = Join-Path $backupPath 'manifest.json'
         } catch {
-            Log "  FAIL restore snapshot initialization - $($_.Exception.Message)"
+            Log "  FAIL recovery workspace initialization - $($_.Exception.Message)"
             Log "DONE"
             return
         }
 
+        $backupManifest = [ordered]@{
+            SchemaVersion = 1
+            ToolVersion = '1.3.0'
+            CreatedAt = (Get-Date).ToString('o')
+            ComputerName = $env:COMPUTERNAME
+            BackupPath = $backupPath
+            RestoreSnapshotPath = $restorePath
+            RestoreSnapshotBackupPath = $restoreBackupPath
+            RegistryExports = @()
+            RestorePoint = [ordered]@{
+                Attempted = $false
+                Succeeded = $false
+                Message = $null
+            }
+        }
+
         $restore = [ordered]@{
             SchemaVersion = 1
-            ToolVersion = '1.2.0'
+            ToolVersion = '1.3.0'
             CreatedAt = (Get-Date).ToString('o')
             ComputerName = $env:COMPUTERNAME
             Registry = [ordered]@{}
@@ -744,6 +773,7 @@ $btnApply.Add_Click({
                 $json = $restore | ConvertTo-Json -Depth 20
                 Set-Content -LiteralPath $restorePath -Value $json -Encoding UTF8 -ErrorAction Stop
                 Set-Content -LiteralPath $latestRestorePath -Value $json -Encoding UTF8 -ErrorAction Stop
+                Set-Content -LiteralPath $restoreBackupPath -Value $json -Encoding UTF8 -ErrorAction Stop
                 return $true
             } catch {
                 Log "  WARN restore snapshot save failed - $($_.Exception.Message)"
@@ -756,6 +786,163 @@ $btnApply.Add_Click({
             return
         }
         Log "Restore snapshot: $restorePath"
+
+        function SaveBackupManifest {
+            try {
+                $json = $backupManifest | ConvertTo-Json -Depth 12
+                Set-Content -LiteralPath $manifestPath -Value $json -Encoding UTF8 -ErrorAction Stop
+                return $true
+            } catch {
+                Log "  WARN backup manifest save failed - $($_.Exception.Message)"
+                return $false
+            }
+        }
+
+        function ConvertRegistryProviderPath([string]$Path) {
+            if ($Path -match '^HKLM:\\(.+)$') { return "HKLM\$($Matches[1])" }
+            if ($Path -match '^HKCU:\\(.+)$') { return "HKCU\$($Matches[1])" }
+            return $null
+        }
+
+        function GetSafeBackupFileName([string]$Value) {
+            return ([regex]::Replace($Value, '[^A-Za-z0-9._-]+', '_')).Trim('_')
+        }
+
+        function AddRegistryExportResult([string]$Path, [string]$Status, [string]$FilePath, [string]$Message) {
+            $backupManifest.RegistryExports += [ordered]@{
+                Path = $Path
+                Status = $Status
+                FilePath = $FilePath
+                Message = $Message
+            }
+        }
+
+        function ExportRegistryPath([string]$Path) {
+            $nativePath = ConvertRegistryProviderPath $Path
+            if (-not $nativePath) {
+                AddRegistryExportResult $Path 'Skipped' $null 'Unsupported registry hive'
+                return
+            }
+
+            if (-not (Test-Path -LiteralPath $Path)) {
+                AddRegistryExportResult $Path 'Missing' $null 'Registry path did not exist before apply'
+                return
+            }
+
+            $fileName = (GetSafeBackupFileName $nativePath) + '.reg'
+            $filePath = Join-Path $registryBackupPath $fileName
+            $regExe = Join-Path $env:SystemRoot 'System32\reg.exe'
+            $output = & $regExe export $nativePath $filePath /y 2>&1
+            $exitCode = $LASTEXITCODE
+            $message = ($output | Out-String).Trim()
+
+            if ($exitCode -eq 0 -and (Test-Path -LiteralPath $filePath)) {
+                AddRegistryExportResult $Path 'Exported' $filePath $message
+                Log "  Exported registry backup: $Path"
+            } else {
+                AddRegistryExportResult $Path 'Failed' $filePath $message
+                Log "  WARN registry export failed: $Path - $message"
+            }
+        }
+
+        function TryCreateRestorePoint {
+            $backupManifest.RestorePoint.Attempted = $true
+            try {
+                $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+                if ($os.ProductType -ne 1) {
+                    $message = 'System restore points are not supported on this Windows SKU'
+                    $backupManifest.RestorePoint.Message = $message
+                    Log "  Restore point skipped: $message"
+                    return
+                }
+
+                Checkpoint-Computer -Description "TelemetrySlayer preflight $stamp" -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop
+                $backupManifest.RestorePoint.Succeeded = $true
+                $backupManifest.RestorePoint.Message = 'Created'
+                Log "  Created system restore point"
+            } catch {
+                $backupManifest.RestorePoint.Message = $_.Exception.Message
+                Log "  Restore point unavailable: $($_.Exception.Message)"
+            }
+        }
+
+        function RunPreflightBackup {
+            Log ""
+            Log "=== PREFLIGHT BACKUP ==="
+            Log "  Backup bundle: $backupPath"
+
+            TryCreateRestorePoint
+
+            $registryTargets = @(
+                'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection',
+                'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection',
+                'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo',
+                'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo',
+                'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo',
+                'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\TextInput',
+                'HKLM:\SOFTWARE\Policies\Microsoft\InputPersonalization',
+                'HKCU:\SOFTWARE\Policies\Microsoft\Windows\CloudContent',
+                'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent',
+                'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Privacy',
+                'HKCU:\SOFTWARE\Microsoft\Siuf\Rules',
+                'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System',
+                'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors',
+                'HKCU:\SOFTWARE\Microsoft\InputPersonalization',
+                'HKCU:\SOFTWARE\Microsoft\InputPersonalization\TrainedDataStore',
+                'HKLM:\SOFTWARE\Policies\Microsoft\Windows\TabletPC',
+                'HKCU:\SOFTWARE\Microsoft\Personalization\Settings',
+                'HKLM:\SOFTWARE\Microsoft\Speech_OneCore\Preferences',
+                'HKLM:\SOFTWARE\Policies\Microsoft\Windows\HandwritingErrorReports',
+                'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat',
+                'HKLM:\SOFTWARE\Microsoft\WcmSvc\wifinetworkmanager\config',
+                'HKLM:\SOFTWARE\Microsoft\PolicyManager\default\WiFi\AllowAutoConnectToWiFiSenseHotspots',
+                'HKLM:\SOFTWARE\Microsoft\PolicyManager\default\WiFi\AllowWiFiHotSpotReporting',
+                'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\CompatTelRunner.exe',
+                'HKLM:\SYSTEM\CurrentControlSet\Control\WMI\Autologger\AutoLogger-Diagtrack-Listener',
+                'HKCU:\SOFTWARE\Policies\Microsoft\Office\Common\ClientTelemetry',
+                'HKCU:\SOFTWARE\Policies\Microsoft\Office\15.0\osm',
+                'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\osm',
+                'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Feedback',
+                'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common',
+                'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Privacy',
+                'HKLM:\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client',
+                'HKLM:\SYSTEM\CurrentControlSet\Services\DiagTrack',
+                'HKLM:\SYSTEM\CurrentControlSet\Services\dmwappushservice',
+                'HKLM:\SYSTEM\CurrentControlSet\Services\WerSvc',
+                'HKLM:\SYSTEM\CurrentControlSet\Services\PcaSvc',
+                'HKLM:\SYSTEM\CurrentControlSet\Services\diagsvc',
+                'HKLM:\SYSTEM\CurrentControlSet\Services\DPS',
+                'HKLM:\SYSTEM\CurrentControlSet\Services\NvTelemetryContainer',
+                'HKLM:\SYSTEM\CurrentControlSet\Services\VSStandardCollectorService150',
+                'HKLM:\SOFTWARE\Policies\Microsoft\Edge',
+                'HKCU:\SOFTWARE\Microsoft\VisualStudio\Telemetry',
+                'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback'
+            ) | Select-Object -Unique
+
+            foreach ($path in $registryTargets) {
+                ExportRegistryPath $path
+            }
+
+            if (-not (SaveBackupManifest)) {
+                return $false
+            }
+
+            $registryExports = @(Get-ChildItem -LiteralPath $registryBackupPath -Filter '*.reg' -ErrorAction SilentlyContinue)
+            $hasSnapshot = Test-Path -LiteralPath $restoreBackupPath
+            $hasManifest = Test-Path -LiteralPath $manifestPath
+            if (-not $hasSnapshot -and -not $hasManifest -and $registryExports.Count -eq 0) {
+                Log "  FAIL no recovery artifact could be written; Apply blocked"
+                return $false
+            }
+
+            Log "  Recovery artifacts ready: $($registryExports.Count) registry exports, manifest=$hasManifest, snapshot=$hasSnapshot"
+            return $true
+        }
+
+        if (-not (RunPreflightBackup)) {
+            Log "DONE"
+            return
+        }
 
         function OpenRegistryKeyForRead([string]$Path) {
             if ($Path -match '^HKLM:\\(.+)$') {

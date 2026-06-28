@@ -114,13 +114,6 @@ Forward-looking plans for TelemetrySlayer — a single-file PowerShell WPF tool 
 
 ## Research-Driven Additions
 
-- [ ] P0 - Add preflight backup and recovery gate
-  Why: The tool changes machine-wide policy, services, tasks, firewall, IFEO, and ETL state without restore point, registry export, or crash-resumable recovery file.
-  Evidence: `TelemetrySlayer.ps1:687`, `TelemetrySlayer.ps1:1060`; Sophia Script `CreateRestorePoint`; Raphire/Win11Debloat issues 675 and 384.
-  Touches: `TelemetrySlayer.ps1`
-  Acceptance: Before Apply, the app records a restore bundle under `%ProgramData%\TelemetrySlayer\Backups`, attempts a system restore point when supported, exports affected registry paths, logs unsupported restore-point cases, and blocks Apply only when no recovery artifact can be written.
-  Complexity: L
-
 - [ ] P0 - Add mocked Pester coverage for every hardening action
   Why: There is no test suite for a privileged tool whose behavior depends on registry, services, tasks, firewall, and Windows build differences.
   Evidence: `rtk git ls-files`; parser smoke check passed but no tests exist; Privatezilla test/check model.

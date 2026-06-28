@@ -2,7 +2,7 @@
 
 # TelemetrySlayer
 
-![Version](https://img.shields.io/badge/version-1.2.0-blue)
+![Version](https://img.shields.io/badge/version-1.3.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1+-5391FE?logo=powershell&logoColor=white)
@@ -90,6 +90,7 @@ The script auto-elevates to Administrator. No dependencies, no modules, no insta
 | Feature | Description | Default |
 |---------|-------------|---------|
 | Exact Undo Snapshot | Apply records prior registry value/type/absence, service startup/status, exact scheduled-task IDs, firewall rule baselines, IFEO, and autologger state under `%ProgramData%\TelemetrySlayer\State` | On |
+| Preflight Backup Bundle | Apply writes `%ProgramData%\TelemetrySlayer\Backups\backup-<timestamp>` with a manifest, restore snapshot copy, registry exports for managed keys, and restore-point attempt status before changing the machine | On |
 | Timeout-Safe Service Control | Service stop/start/startup changes run through `sc.exe` with timeout, retry/backoff, exit-code logging, and visible failure output | On |
 
 ### Office Telemetry
@@ -118,7 +119,7 @@ The script auto-elevates to Administrator. No dependencies, no modules, no insta
 ```
 
 1. **UI thread** captures all checkbox states into a hashtable
-2. **Worker runspace** writes an exact restore snapshot, then executes operations (timeout-safe service control, task disabling, registry writes, firewall rules) in a separate thread to keep the GUI responsive
+2. **Worker runspace** writes an exact restore snapshot and preflight backup bundle, then executes operations (timeout-safe service control, task disabling, registry writes, firewall rules) in a separate thread to keep the GUI responsive
 3. **ConcurrentQueue** bridges the worker and UI — log messages stream in real-time as each operation completes
 4. **DispatcherTimer** drains the queue every 100ms and appends to the embedded console
 5. **gpupdate /force** runs at the end to apply Group Policy changes immediately
@@ -150,6 +151,7 @@ Combined with outbound firewall rules, this provides defense-in-depth: even if s
 - Prevent CompatTelRunner.exe from launching via IFEO
 - Clear existing telemetry log data
 - Disable Office telemetry and feedback
+- Write a preflight recovery bundle with registry exports, restore snapshot copy, manifest, and restore-point attempt status
 - Restore prior registry values, service startup/status, scheduled-task enabled state, firewall baselines, IFEO, and autologger settings from the latest apply snapshot
 - Apply changes via Group Policy update
 - Provide granular per-item control with sane defaults
