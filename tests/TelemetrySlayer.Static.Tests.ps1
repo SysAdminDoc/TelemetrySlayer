@@ -33,6 +33,15 @@ Describe 'TelemetrySlayer static safety checks' {
         $script:ScriptText | Should -Match 'Get-ScheduledTask -TaskName \$TaskName -TaskPath \$TaskPath'
     }
 
+    It 'uses SKU-aware AllowTelemetry scan and apply behavior' {
+        $script:ScriptText | Should -Match 'function GetTelemetrySkuProfile'
+        $script:ScriptText | Should -Match 'SupportsDiagnosticOff'
+        $script:ScriptText | Should -Match 'AllowTelemetryValue'
+        $script:ScriptText | Should -Match 'Set AllowTelemetry to 1 \(Required diagnostic data - SKU gated\)'
+        $script:ScriptText | Should -Match '\$telemetryValue = \[int\]\$telemetryProfile\.AllowTelemetryValue'
+        $script:ScriptText | Should -Match 'TelemetrySlayer will apply required diagnostic data value 1'
+    }
+
     It 'restores undo state from the saved snapshot instead of broad defaults' {
         $script:ScriptText | Should -Match 'ConvertFrom-Json'
         $script:ScriptText | Should -Match 'function RestoreSvc'

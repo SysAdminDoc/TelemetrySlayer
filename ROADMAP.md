@@ -114,13 +114,6 @@ Forward-looking plans for TelemetrySlayer — a single-file PowerShell WPF tool 
 
 ## Research-Driven Additions
 
-- [ ] P1 - Add SKU-aware telemetry policy gating
-  Why: `AllowTelemetry=0` and related policy semantics differ by Windows edition, and users need to see when a setting is unavailable or downgraded to required diagnostic data.
-  Evidence: `TelemetrySlayer.ps1:795`; Sophia Script `DiagnosticDataLevel`; Microsoft Windows privacy documentation.
-  Touches: `TelemetrySlayer.ps1`
-  Acceptance: Scan detects Windows product name, build, edition, and LTSC/Server status; toggles show gated N/A/warning text; Apply chooses documented values per SKU and logs the reason.
-  Complexity: M
-
 - [ ] P1 - Refresh current Microsoft Edge and Windows policy coverage
   Why: Current Edge coverage includes an obsolete policy and misses current user-feedback, sidebar, and WebView2 policy surfaces already called out in the roadmap.
   Evidence: `TelemetrySlayer.ps1:970`, `TelemetrySlayer.ps1:975`; Microsoft Edge `DiagnosticData` and `MetricsReportingEnabled` policy docs; ChrisTitusTech/winutil `WPFTweaksEdgeDebloat`.

@@ -1,5 +1,5 @@
 ﻿#Requires -Version 5.1
-# TelemetrySlayer v1.4.0
+# TelemetrySlayer v1.5.0
 # Disables Microsoft telemetry, data collection, and related bloat on Windows 10/11
 
 param(
@@ -165,9 +165,9 @@ function Get-TelemetrySlayerActionCatalog {
             Get-TelemetrySlayerTaskOperation 'PcaPatchDbTask' $appExpPath
         )
         Get-TelemetrySlayerAction 'chkAllowTelemetry' 'AllowTelemetry policies' @(
-            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' 0
-            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'MaxTelemetryAllowed' 0
-            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection' 'AllowTelemetry' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' 'SkuGated0Or1'
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'MaxTelemetryAllowed' 'SkuGated0Or1'
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection' 'AllowTelemetry' 'SkuGated0Or1'
         )
         Get-TelemetrySlayerAction 'chkAdvertisingID' 'Advertising ID' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo' 'Enabled' 0
@@ -364,7 +364,7 @@ Add-Type -Name Win -Namespace Native -MemberDefinition @'
 $xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="TelemetrySlayer v1.4.0" Width="820" Height="750"
+        Title="TelemetrySlayer v1.5.0" Width="820" Height="750"
         WindowStartupLocation="CenterScreen" Background="#0d1117"
         ResizeMode="CanResizeWithGrip" MinWidth="750" MinHeight="600">
     <Window.Resources>
@@ -782,6 +782,7 @@ $btnUndo      = $window.FindName('btnUndo')
 $btnSelectAll = $window.FindName('btnSelectAll')
 $btnDeselectAll = $window.FindName('btnDeselectAll')
 $btnScan      = $window.FindName('btnScan')
+$chkAllowTelemetry = $window.FindName('chkAllowTelemetry')
 
 # All checkboxes
 $allCheckboxNames = @(
@@ -894,6 +895,55 @@ function RunScan {
             } catch { $scanQueue.Enqueue("$IndName=ON") }
         }
 
+        function GetTelemetrySkuProfile {
+            try {
+                $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+                $cv = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue
+                $productName = if ($cv.ProductName) { $cv.ProductName } else { $os.Caption }
+                $editionId = if ($cv.EditionID) { $cv.EditionID } else { 'Unknown' }
+                $build = if ($cv.CurrentBuildNumber) { $cv.CurrentBuildNumber } else { $os.BuildNumber }
+                $displayVersion = if ($cv.DisplayVersion) { $cv.DisplayVersion } elseif ($cv.ReleaseId) { $cv.ReleaseId } else { 'Unknown' }
+                $isServer = ($os.ProductType -ne 1) -or ($productName -match 'Server') -or ($editionId -match 'Server')
+                $isLTSC = ($productName -match 'LTSC|LTSB') -or ($editionId -match 'EnterpriseS|IoTEnterpriseS')
+                $supportsDiagnosticOff = $isServer -or ($editionId -match 'Enterprise|Education') -or ($productName -match 'Enterprise|Education')
+                $targetValue = if ($supportsDiagnosticOff) { 0 } else { 1 }
+                $reason = if ($supportsDiagnosticOff) {
+                    'Diagnostic data off value 0 is supported on this SKU.'
+                } else {
+                    'Diagnostic data off value 0 is not supported on this SKU; TelemetrySlayer will apply required diagnostic data value 1.'
+                }
+
+                return [pscustomobject]@{
+                    ProductName = $productName
+                    EditionId = $editionId
+                    Build = $build
+                    DisplayVersion = $displayVersion
+                    IsServer = [bool]$isServer
+                    IsLTSC = [bool]$isLTSC
+                    SupportsDiagnosticOff = [bool]$supportsDiagnosticOff
+                    AllowTelemetryValue = $targetValue
+                    Summary = "$productName $displayVersion build $build edition $editionId"
+                    Reason = $reason
+                }
+            } catch {
+                return [pscustomobject]@{
+                    ProductName = 'Unknown Windows'
+                    EditionId = 'Unknown'
+                    Build = 'Unknown'
+                    DisplayVersion = 'Unknown'
+                    IsServer = $false
+                    IsLTSC = $false
+                    SupportsDiagnosticOff = $false
+                    AllowTelemetryValue = 1
+                    Summary = 'Unknown Windows SKU'
+                    Reason = "Windows SKU detection failed; using required diagnostic data value 1. $($_.Exception.Message)"
+                }
+            }
+        }
+
+        $telemetryProfile = GetTelemetrySkuProfile
+        $scanQueue.Enqueue('SKU=' + ($telemetryProfile | ConvertTo-Json -Compress))
+
         # Services
         CheckSvc 'DiagTrack' 'indDiagTrack'
         CheckSvc 'dmwappushservice' 'indDmwAppPush'
@@ -916,7 +966,7 @@ function RunScan {
         CheckTask 'SmartScreenSpecific' '\Microsoft\Windows\AppID\' 'indSmartScreen'
 
         # Registry / Policy
-        CheckReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' 0 'indAllowTelemetry'
+        CheckReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' $telemetryProfile.AllowTelemetryValue 'indAllowTelemetry'
         CheckReg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo' 'Enabled' 0 'indAdvertisingID'
         CheckReg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\TextInput' 'AllowLinguisticDataCollection' 0 'indLinguistic'
         CheckReg 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableTailoredExperiencesWithDiagnosticData' 1 'indTailoredExp'
@@ -982,6 +1032,25 @@ function RunScan {
                 $script:appliedCount = $applied
                 UpdateSelectedCount
                 return
+            }
+
+            if ($msg -like 'SKU=*') {
+                try {
+                    $skuProfile = $msg.Substring(4) | ConvertFrom-Json
+                    if ($chkAllowTelemetry) {
+                        if ($skuProfile.SupportsDiagnosticOff) {
+                            $chkAllowTelemetry.Content = 'Set AllowTelemetry to 0 (Diagnostic data off)'
+                        } else {
+                            $chkAllowTelemetry.Content = 'Set AllowTelemetry to 1 (Required diagnostic data - SKU gated)'
+                        }
+                        $chkAllowTelemetry.ToolTip = "Detected: $($skuProfile.Summary)`nLTSC: $($skuProfile.IsLTSC)  Server: $($skuProfile.IsServer)`n$($skuProfile.Reason)"
+                    }
+                } catch {
+                    if ($chkAllowTelemetry) {
+                        $chkAllowTelemetry.ToolTip = "Windows SKU detection failed: $($_.Exception.Message)"
+                    }
+                }
+                continue
             }
 
             # Parse: indName=ON/OFF/N/A
@@ -1052,6 +1121,52 @@ $btnApply.Add_Click({
             $logQueue.Enqueue("[$ts] $msg")
         }
 
+        function GetTelemetrySkuProfile {
+            try {
+                $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+                $cv = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue
+                $productName = if ($cv.ProductName) { $cv.ProductName } else { $os.Caption }
+                $editionId = if ($cv.EditionID) { $cv.EditionID } else { 'Unknown' }
+                $build = if ($cv.CurrentBuildNumber) { $cv.CurrentBuildNumber } else { $os.BuildNumber }
+                $displayVersion = if ($cv.DisplayVersion) { $cv.DisplayVersion } elseif ($cv.ReleaseId) { $cv.ReleaseId } else { 'Unknown' }
+                $isServer = ($os.ProductType -ne 1) -or ($productName -match 'Server') -or ($editionId -match 'Server')
+                $isLTSC = ($productName -match 'LTSC|LTSB') -or ($editionId -match 'EnterpriseS|IoTEnterpriseS')
+                $supportsDiagnosticOff = $isServer -or ($editionId -match 'Enterprise|Education') -or ($productName -match 'Enterprise|Education')
+                $targetValue = if ($supportsDiagnosticOff) { 0 } else { 1 }
+                $reason = if ($supportsDiagnosticOff) {
+                    'Diagnostic data off value 0 is supported on this SKU.'
+                } else {
+                    'Diagnostic data off value 0 is not supported on this SKU; TelemetrySlayer will apply required diagnostic data value 1.'
+                }
+
+                return [pscustomobject]@{
+                    ProductName = $productName
+                    EditionId = $editionId
+                    Build = $build
+                    DisplayVersion = $displayVersion
+                    IsServer = [bool]$isServer
+                    IsLTSC = [bool]$isLTSC
+                    SupportsDiagnosticOff = [bool]$supportsDiagnosticOff
+                    AllowTelemetryValue = $targetValue
+                    Summary = "$productName $displayVersion build $build edition $editionId"
+                    Reason = $reason
+                }
+            } catch {
+                return [pscustomobject]@{
+                    ProductName = 'Unknown Windows'
+                    EditionId = 'Unknown'
+                    Build = 'Unknown'
+                    DisplayVersion = 'Unknown'
+                    IsServer = $false
+                    IsLTSC = $false
+                    SupportsDiagnosticOff = $false
+                    AllowTelemetryValue = 1
+                    Summary = 'Unknown Windows SKU'
+                    Reason = "Windows SKU detection failed; using required diagnostic data value 1. $($_.Exception.Message)"
+                }
+            }
+        }
+
         $programDataRoot = Join-Path $env:ProgramData 'TelemetrySlayer'
         $stateRoot = Join-Path $programDataRoot 'State'
         $backupRoot = Join-Path $programDataRoot 'Backups'
@@ -1081,7 +1196,7 @@ $btnApply.Add_Click({
 
         $backupManifest = [ordered]@{
             SchemaVersion = 1
-            ToolVersion = '1.4.0'
+            ToolVersion = '1.5.0'
             CreatedAt = (Get-Date).ToString('o')
             ComputerName = $env:COMPUTERNAME
             BackupPath = $backupPath
@@ -1097,7 +1212,7 @@ $btnApply.Add_Click({
 
         $restore = [ordered]@{
             SchemaVersion = 1
-            ToolVersion = '1.4.0'
+            ToolVersion = '1.5.0'
             CreatedAt = (Get-Date).ToString('o')
             ComputerName = $env:COMPUTERNAME
             Registry = [ordered]@{}
@@ -1585,9 +1700,13 @@ $btnApply.Add_Click({
         Log "=== REGISTRY / POLICY ==="
 
         if ($opts['chkAllowTelemetry']) {
-            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' 0
-            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'MaxTelemetryAllowed' 0
-            SetReg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection' 'AllowTelemetry' 0
+            $telemetryProfile = GetTelemetrySkuProfile
+            $telemetryValue = [int]$telemetryProfile.AllowTelemetryValue
+            Log "  Windows SKU: $($telemetryProfile.Summary)"
+            Log "  $($telemetryProfile.Reason)"
+            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' $telemetryValue
+            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'MaxTelemetryAllowed' $telemetryValue
+            SetReg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection' 'AllowTelemetry' $telemetryValue
         }
 
         if ($opts['chkAdvertisingID']) {

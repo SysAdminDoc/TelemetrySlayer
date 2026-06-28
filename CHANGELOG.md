@@ -2,6 +2,13 @@
 
 All notable changes to TelemetrySlayer will be documented in this file.
 
+## [v1.5.0] - 2026-06-28
+
+- Added SKU-aware `AllowTelemetry` / `MaxTelemetryAllowed` handling.
+- Detected Windows product name, build, edition, LTSC, and Server status during scan/apply.
+- Updated the AllowTelemetry toggle text and tooltip with the SKU-gated value and reason.
+- Applied diagnostic data value `0` only where supported; otherwise applied required diagnostic data value `1`.
+
 ## [v1.4.0] - 2026-06-28
 
 - Added `-ActionCatalogOnly` test mode that loads action catalog and mockable dispatch helpers before elevation.

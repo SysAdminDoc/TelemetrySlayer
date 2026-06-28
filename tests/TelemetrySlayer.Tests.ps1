@@ -88,6 +88,7 @@ Describe 'TelemetrySlayer action catalog' {
         @($script:CatalogByCheckBox.chkDiagTrack.Operations.Target) | Should -Contain 'DiagTrack'
         @($script:CatalogByCheckBox.chkCompatAppraiser.Operations.Target) | Should -Contain '\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser'
         @($script:CatalogByCheckBox.chkAllowTelemetry.Operations.Target) | Should -Contain 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection\AllowTelemetry'
+        @($script:CatalogByCheckBox.chkAllowTelemetry.Operations.Data.Value | Sort-Object -Unique) | Should -Be @('SkuGated0Or1')
         @($script:CatalogByCheckBox.chkFirewallDiagTrack.Operations.Target) | Should -Contain 'TelemetrySlayer - Block DiagTrack svchost'
         @($script:CatalogByCheckBox.chkIFEO.Operations.Target) | Should -Contain 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\CompatTelRunner.exe\Debugger'
         @($script:CatalogByCheckBox.chkClearETL.Operations.Kind) | Should -Be @('File', 'Registry')

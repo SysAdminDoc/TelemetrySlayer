@@ -2,7 +2,7 @@
 
 # TelemetrySlayer
 
-![Version](https://img.shields.io/badge/version-1.4.0-blue)
+![Version](https://img.shields.io/badge/version-1.5.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1+-5391FE?logo=powershell&logoColor=white)
@@ -62,7 +62,7 @@ The script auto-elevates to Administrator. No dependencies, no modules, no insta
 
 | Feature | Description | Default |
 |---------|-------------|---------|
-| AllowTelemetry = 0 | Sets telemetry policy to Security/Off across both policy registry paths | On |
+| SKU-aware AllowTelemetry | Sets `AllowTelemetry` / `MaxTelemetryAllowed` to 0 where Windows supports diagnostic data off, or 1 where the SKU only allows required diagnostic data | On |
 | Disable Advertising ID | Prevents cross-app ad profiling via advertising identifier | On |
 | Disable Linguistic Data Collection | Stops inking and typing data collection | On |
 | Disable Tailored Experiences | Blocks Microsoft from using diagnostics for personalized tips/ads | On |
@@ -92,6 +92,7 @@ The script auto-elevates to Administrator. No dependencies, no modules, no insta
 | Exact Undo Snapshot | Apply records prior registry value/type/absence, service startup/status, exact scheduled-task IDs, firewall rule baselines, IFEO, and autologger state under `%ProgramData%\TelemetrySlayer\State` | On |
 | Preflight Backup Bundle | Apply writes `%ProgramData%\TelemetrySlayer\Backups\backup-<timestamp>` with a manifest, restore snapshot copy, registry exports for managed keys, and restore-point attempt status before changing the machine | On |
 | Timeout-Safe Service Control | Service stop/start/startup changes run through `sc.exe` with timeout, retry/backoff, exit-code logging, and visible failure output | On |
+| SKU-Aware Diagnostic Data | Scan detects product name, build, edition, LTSC, and Server status; the AllowTelemetry toggle text and tooltip show the applied value and reason | On |
 
 ### Office Telemetry
 
@@ -153,6 +154,7 @@ Combined with outbound firewall rules, this provides defense-in-depth: even if s
 - Disable Office telemetry and feedback
 - Write a preflight recovery bundle with registry exports, restore snapshot copy, manifest, and restore-point attempt status
 - Restore prior registry values, service startup/status, scheduled-task enabled state, firewall baselines, IFEO, and autologger settings from the latest apply snapshot
+- Apply the documented diagnostic data value for the detected Windows SKU and log the reason
 - Apply changes via Group Policy update
 - Provide granular per-item control with sane defaults
 
