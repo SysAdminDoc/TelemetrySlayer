@@ -114,13 +114,6 @@ Forward-looking plans for TelemetrySlayer — a single-file PowerShell WPF tool 
 
 ## Research-Driven Additions
 
-- [ ] P0 - Add mocked Pester coverage for every hardening action
-  Why: There is no test suite for a privileged tool whose behavior depends on registry, services, tasks, firewall, and Windows build differences.
-  Evidence: `rtk git ls-files`; parser smoke check passed but no tests exist; Privatezilla test/check model.
-  Touches: `TelemetrySlayer.ps1`, `tests/TelemetrySlayer.Tests.ps1`
-  Acceptance: Pester tests mock registry/service/task/firewall/gpupdate calls and verify each checkbox emits the expected Test/Apply/Verify/Undo operations without touching the host OS.
-  Complexity: L
-
 - [ ] P1 - Add SKU-aware telemetry policy gating
   Why: `AllowTelemetry=0` and related policy semantics differ by Windows edition, and users need to see when a setting is unavailable or downgraded to required diagnostic data.
   Evidence: `TelemetrySlayer.ps1:795`; Sophia Script `DiagnosticDataLevel`; Microsoft Windows privacy documentation.

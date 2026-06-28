@@ -1,6 +1,348 @@
-#Requires -Version 5.1
-# TelemetrySlayer v1.3.0
+﻿#Requires -Version 5.1
+# TelemetrySlayer v1.4.0
 # Disables Microsoft telemetry, data collection, and related bloat on Windows 10/11
+
+param(
+    [switch]$ActionCatalogOnly
+)
+
+function Get-TelemetrySlayerOperation {
+    param(
+        [Parameter(Mandatory = $true)][string]$Kind,
+        [Parameter(Mandatory = $true)][string]$Target,
+        [hashtable]$Data = @{}
+    )
+
+    [pscustomobject]@{
+        Kind = $Kind
+        Target = $Target
+        Data = [pscustomobject]$Data
+        Phases = @('Test', 'Apply', 'Verify', 'Undo')
+    }
+}
+
+function Get-TelemetrySlayerRegistryOperation {
+    param([string]$Path, [string]$Name, $Value, [string]$Type = 'DWord')
+    Get-TelemetrySlayerOperation -Kind 'Registry' -Target "$Path\$Name" -Data @{
+        Path = $Path
+        Name = $Name
+        Value = $Value
+        Type = $Type
+        Apply = 'Set'
+        Test = 'Equals'
+        Verify = 'Equals'
+        Undo = 'RestoreSnapshot'
+    }
+}
+
+function Get-TelemetrySlayerServiceOperation {
+    param([string]$Name, [string]$DisplayName)
+    Get-TelemetrySlayerOperation -Kind 'Service' -Target $Name -Data @{
+        Name = $Name
+        DisplayName = $DisplayName
+        Apply = 'Disable'
+        Test = 'StartupDisabled'
+        Verify = 'StartupDisabled'
+        Undo = 'RestoreSnapshot'
+    }
+}
+
+function Get-TelemetrySlayerTaskOperation {
+    param([string]$TaskName, [string]$TaskPath)
+    Get-TelemetrySlayerOperation -Kind 'Task' -Target "$TaskPath$TaskName" -Data @{
+        TaskName = $TaskName
+        TaskPath = $TaskPath
+        Apply = 'Disable'
+        Test = 'Disabled'
+        Verify = 'Disabled'
+        Undo = 'RestoreSnapshot'
+    }
+}
+
+function Get-TelemetrySlayerFirewallOperation {
+    param([string]$DisplayName, [string]$Program, [string]$Service)
+    Get-TelemetrySlayerOperation -Kind 'Firewall' -Target $DisplayName -Data @{
+        DisplayName = $DisplayName
+        Program = $Program
+        Service = $Service
+        Apply = 'BlockOutbound'
+        Test = 'RulePresent'
+        Verify = 'RulePresent'
+        Undo = 'RestoreSnapshot'
+    }
+}
+
+function Get-TelemetrySlayerFileOperation {
+    param([string]$Path, [string]$Action)
+    Get-TelemetrySlayerOperation -Kind 'File' -Target $Path -Data @{
+        Path = $Path
+        Apply = $Action
+        Test = 'PathState'
+        Verify = 'PathState'
+        Undo = 'NoFileRestore'
+    }
+}
+
+function Get-TelemetrySlayerProcessOperation {
+    param([string]$Name, [string]$Action)
+    Get-TelemetrySlayerOperation -Kind 'Process' -Target $Name -Data @{
+        Name = $Name
+        Apply = $Action
+        Test = 'ProcessAbsent'
+        Verify = 'ProcessAbsent'
+        Undo = 'NoProcessRestore'
+    }
+}
+
+function Get-TelemetrySlayerAction {
+    param(
+        [Parameter(Mandatory = $true)][string]$CheckBox,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][object[]]$Operations
+    )
+
+    [pscustomobject]@{
+        CheckBox = $CheckBox
+        Name = $Name
+        Operations = @($Operations)
+    }
+}
+
+function Get-TelemetrySlayerActionCatalog {
+    $systemRoot = if ($env:SystemRoot) { $env:SystemRoot } else { 'C:\Windows' }
+    $programData = if ($env:ProgramData) { $env:ProgramData } else { 'C:\ProgramData' }
+    $appExpPath = '\Microsoft\Windows\Application Experience\'
+    $ceipPath = '\Microsoft\Windows\Customer Experience Improvement Program\'
+    $nvidiaTaskPath = '\'
+
+    @(
+        Get-TelemetrySlayerAction 'chkDiagTrack' 'Connected User Experiences and Telemetry' @(
+            Get-TelemetrySlayerServiceOperation 'DiagTrack' 'Connected User Experiences and Telemetry'
+        )
+        Get-TelemetrySlayerAction 'chkDmwAppPush' 'WAP Push Message Routing' @(
+            Get-TelemetrySlayerServiceOperation 'dmwappushservice' 'WAP Push Message Routing'
+        )
+        Get-TelemetrySlayerAction 'chkWerSvc' 'Windows Error Reporting' @(
+            Get-TelemetrySlayerServiceOperation 'WerSvc' 'Windows Error Reporting'
+        )
+        Get-TelemetrySlayerAction 'chkPcaSvc' 'Program Compatibility Assistant' @(
+            Get-TelemetrySlayerServiceOperation 'PcaSvc' 'Program Compatibility Assistant'
+        )
+        Get-TelemetrySlayerAction 'chkDiagSvc' 'Diagnostic Service Host' @(
+            Get-TelemetrySlayerServiceOperation 'diagsvc' 'Diagnostic Service Host'
+        )
+        Get-TelemetrySlayerAction 'chkDPS' 'Diagnostic Policy Service' @(
+            Get-TelemetrySlayerServiceOperation 'DPS' 'Diagnostic Policy Service'
+        )
+        Get-TelemetrySlayerAction 'chkCompatAppraiser' 'Microsoft Compatibility Appraiser' @(
+            Get-TelemetrySlayerTaskOperation 'Microsoft Compatibility Appraiser' $appExpPath
+        )
+        Get-TelemetrySlayerAction 'chkProgramDataUpdater' 'ProgramDataUpdater' @(
+            Get-TelemetrySlayerTaskOperation 'ProgramDataUpdater' $appExpPath
+        )
+        Get-TelemetrySlayerAction 'chkStartupAppTask' 'StartupAppTask' @(
+            Get-TelemetrySlayerTaskOperation 'StartupAppTask' $appExpPath
+        )
+        Get-TelemetrySlayerAction 'chkProxy' 'Autochk Proxy' @(
+            Get-TelemetrySlayerTaskOperation 'Proxy' '\Microsoft\Windows\Autochk\'
+        )
+        Get-TelemetrySlayerAction 'chkConsolidator' 'CEIP Consolidator' @(
+            Get-TelemetrySlayerTaskOperation 'Consolidator' $ceipPath
+        )
+        Get-TelemetrySlayerAction 'chkUsbCeip' 'USB CEIP' @(
+            Get-TelemetrySlayerTaskOperation 'UsbCeip' $ceipPath
+        )
+        Get-TelemetrySlayerAction 'chkKernelCeip' 'Kernel CEIP' @(
+            Get-TelemetrySlayerTaskOperation 'KernelCeipTask' $ceipPath
+        )
+        Get-TelemetrySlayerAction 'chkDiskDiag' 'Disk Diagnostic Data Collector' @(
+            Get-TelemetrySlayerTaskOperation 'Microsoft-Windows-DiskDiagnosticDataCollector' '\Microsoft\Windows\DiskDiagnostic\'
+        )
+        Get-TelemetrySlayerAction 'chkSmartScreen' 'SmartScreenSpecific' @(
+            Get-TelemetrySlayerTaskOperation 'SmartScreenSpecific' '\Microsoft\Windows\AppID\'
+        )
+        Get-TelemetrySlayerAction 'chkPcaPatchDb' 'PcaPatchDbTask' @(
+            Get-TelemetrySlayerTaskOperation 'PcaPatchDbTask' $appExpPath
+        )
+        Get-TelemetrySlayerAction 'chkAllowTelemetry' 'AllowTelemetry policies' @(
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'MaxTelemetryAllowed' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection' 'AllowTelemetry' 0
+        )
+        Get-TelemetrySlayerAction 'chkAdvertisingID' 'Advertising ID' @(
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo' 'Enabled' 0
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo' 'Enabled' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo' 'DisabledByGroupPolicy' 1
+        )
+        Get-TelemetrySlayerAction 'chkLinguistic' 'Linguistic data collection' @(
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\TextInput' 'AllowLinguisticDataCollection' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\InputPersonalization' 'AllowInputPersonalization' 0
+        )
+        Get-TelemetrySlayerAction 'chkTailoredExp' 'Tailored experiences' @(
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableTailoredExperiencesWithDiagnosticData' 1
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsConsumerFeatures' 1
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Privacy' 'TailoredExperiencesWithDiagnosticDataEnabled' 0
+        )
+        Get-TelemetrySlayerAction 'chkFeedback' 'Feedback notifications' @(
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\Siuf\Rules' 'NumberOfSIUFInPeriod' 0
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\Siuf\Rules' 'PeriodInNanoSeconds' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'DoNotShowFeedbackNotifications' 1
+        )
+        Get-TelemetrySlayerAction 'chkActivityFeed' 'Activity history' @(
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'EnableActivityFeed' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'PublishUserActivities' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'UploadUserActivities' 0
+        )
+        Get-TelemetrySlayerAction 'chkLocationTracking' 'Location tracking' @(
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableLocation' 1
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableWindowsLocationProvider' 1
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableLocationScripting' 1
+        )
+        Get-TelemetrySlayerAction 'chkInputPersonalization' 'Input personalization' @(
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\InputPersonalization' 'RestrictImplicitInkCollection' 1
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\InputPersonalization' 'RestrictImplicitTextCollection' 1
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\InputPersonalization\TrainedDataStore' 'HarvestContacts' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\TabletPC' 'PreventHandwritingDataSharing' 1
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\Personalization\Settings' 'AcceptedPrivacyPolicy' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Speech_OneCore\Preferences' 'ModelDownloadAllowed' 0
+        )
+        Get-TelemetrySlayerAction 'chkHandwritingTelemetry' 'Handwriting telemetry' @(
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\HandwritingErrorReports' 'PreventHandwritingErrorReports' 1
+        )
+        Get-TelemetrySlayerAction 'chkInventoryCollector' 'Application inventory collector' @(
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'DisableInventory' 1
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'AITEnable' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'DisableUAR' 1
+        )
+        Get-TelemetrySlayerAction 'chkStepsRecorder' 'Steps Recorder' @(
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'DisablePCA' 1
+        )
+        Get-TelemetrySlayerAction 'chkWiFiSense' 'Wi-Fi Sense' @(
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\WcmSvc\wifinetworkmanager\config' 'AutoConnectAllowedOEM' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\PolicyManager\default\WiFi\AllowAutoConnectToWiFiSenseHotspots' 'value' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\PolicyManager\default\WiFi\AllowWiFiHotSpotReporting' 'value' 0
+        )
+        Get-TelemetrySlayerAction 'chkFirewallCompat' 'CompatTelRunner firewall block' @(
+            Get-TelemetrySlayerFirewallOperation 'TelemetrySlayer - Block CompatTelRunner' "$systemRoot\System32\CompatTelRunner.exe" $null
+        )
+        Get-TelemetrySlayerAction 'chkFirewallCEIP' 'CEIP firewall block' @(
+            Get-TelemetrySlayerFirewallOperation 'TelemetrySlayer - Block CEIP wsqmcons' "$systemRoot\System32\wsqmcons.exe" $null
+        )
+        Get-TelemetrySlayerAction 'chkFirewallDiagTrack' 'DiagTrack firewall block' @(
+            Get-TelemetrySlayerFirewallOperation 'TelemetrySlayer - Block DiagTrack svchost' "$systemRoot\System32\svchost.exe" 'DiagTrack'
+        )
+        Get-TelemetrySlayerAction 'chkIFEO' 'CompatTelRunner IFEO debugger' @(
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\CompatTelRunner.exe' 'Debugger' "$systemRoot\System32\taskkill.exe" 'String'
+        )
+        Get-TelemetrySlayerAction 'chkClearETL' 'Clear DiagTrack ETL' @(
+            Get-TelemetrySlayerFileOperation "$programData\Microsoft\Diagnosis\ETLLogs\AutoLogger\AutoLogger-Diagtrack-Listener.etl" 'ClearFile'
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SYSTEM\CurrentControlSet\Control\WMI\Autologger\AutoLogger-Diagtrack-Listener' 'Start' 0
+        )
+        Get-TelemetrySlayerAction 'chkOfficeTelemetry' 'Office telemetry' @(
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\15.0\osm' 'Enablelogging' 0
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\15.0\osm' 'EnableUpload' 0
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\osm' 'Enablelogging' 0
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\osm' 'EnableUpload' 0
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\Common\ClientTelemetry' 'DisableTelemetry' 1
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\Common\ClientTelemetry' 'SendTelemetry' 3
+        )
+        Get-TelemetrySlayerAction 'chkOfficeFeedback' 'Office feedback' @(
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Feedback' 'Enabled' 0
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Feedback' 'SurveyEnabled' 0
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common' 'sendcustomerdata' 0
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Privacy' 'DisconnectedState' 2
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Privacy' 'ControllerConnectedServicesEnabled' 2
+        )
+        Get-TelemetrySlayerAction 'chkNvidiaSvc' 'Nvidia telemetry service' @(
+            Get-TelemetrySlayerServiceOperation 'NvTelemetryContainer' 'Nvidia Telemetry Container'
+        )
+        Get-TelemetrySlayerAction 'chkNvidiaTasks' 'Nvidia telemetry tasks' @(
+            Get-TelemetrySlayerTaskOperation 'NvTmMon_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}' $nvidiaTaskPath
+            Get-TelemetrySlayerTaskOperation 'NvTmRep_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}' $nvidiaTaskPath
+            Get-TelemetrySlayerTaskOperation 'NvProfileUpdaterDaily_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}' $nvidiaTaskPath
+            Get-TelemetrySlayerTaskOperation 'NvProfileUpdaterOnLogon_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}' $nvidiaTaskPath
+        )
+        Get-TelemetrySlayerAction 'chkNvidiaReg' 'Nvidia telemetry registry' @(
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client' 'Optimus_EnableTelemetry' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SYSTEM\CurrentControlSet\Services\NvTelemetryContainer' 'Start' 4
+        )
+        Get-TelemetrySlayerAction 'chkEdgeDiag' 'Edge diagnostic data' @(
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiagnosticData' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'PersonalizationReportingEnabled' 0
+        )
+        Get-TelemetrySlayerAction 'chkEdgeMetrics' 'Edge metrics' @(
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'MetricsReportingEnabled' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'SendSiteInfoToImproveServices' 0
+        )
+        Get-TelemetrySlayerAction 'chkVSTelemetry' 'Visual Studio telemetry' @(
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\VisualStudio\Telemetry' 'TurnOffSwitch' 1
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableFeedbackDialog' 1
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableEmailInput' 1
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableScreenshotCapture' 1
+        )
+        Get-TelemetrySlayerAction 'chkVSSvc' 'Visual Studio collector service' @(
+            Get-TelemetrySlayerServiceOperation 'VSStandardCollectorService150' 'VS Standard Collector Service'
+            Get-TelemetrySlayerProcessOperation 'PerfWatson2' 'Stop'
+        )
+    )
+}
+
+function Get-TelemetrySlayerFinalizeOperation {
+    Get-TelemetrySlayerOperation -Kind 'Gpupdate' -Target 'gpupdate.exe /force' -Data @{
+        Apply = 'RefreshPolicy'
+        Test = 'NotApplicable'
+        Verify = 'PolicyRefreshAttempted'
+        Undo = 'RefreshPolicy'
+    }
+}
+
+function Invoke-TelemetrySlayerRegistryOperation { param($Operation, [string]$Phase) [pscustomobject]@{ Kind = 'Registry'; Phase = $Phase; Target = $Operation.Target } }
+function Invoke-TelemetrySlayerServiceOperation { param($Operation, [string]$Phase) [pscustomobject]@{ Kind = 'Service'; Phase = $Phase; Target = $Operation.Target } }
+function Invoke-TelemetrySlayerTaskOperation { param($Operation, [string]$Phase) [pscustomobject]@{ Kind = 'Task'; Phase = $Phase; Target = $Operation.Target } }
+function Invoke-TelemetrySlayerFirewallOperation { param($Operation, [string]$Phase) [pscustomobject]@{ Kind = 'Firewall'; Phase = $Phase; Target = $Operation.Target } }
+function Invoke-TelemetrySlayerFileOperation { param($Operation, [string]$Phase) [pscustomobject]@{ Kind = 'File'; Phase = $Phase; Target = $Operation.Target } }
+function Invoke-TelemetrySlayerProcessOperation { param($Operation, [string]$Phase) [pscustomobject]@{ Kind = 'Process'; Phase = $Phase; Target = $Operation.Target } }
+function Invoke-TelemetrySlayerGpupdateOperation { param($Operation, [string]$Phase) [pscustomobject]@{ Kind = 'Gpupdate'; Phase = $Phase; Target = $Operation.Target } }
+
+function Invoke-TelemetrySlayerOperation {
+    param(
+        [Parameter(Mandatory = $true)]$Operation,
+        [Parameter(Mandatory = $true)][ValidateSet('Test', 'Apply', 'Verify', 'Undo')][string]$Phase
+    )
+
+    switch ($Operation.Kind) {
+        'Registry' { Invoke-TelemetrySlayerRegistryOperation -Operation $Operation -Phase $Phase }
+        'Service' { Invoke-TelemetrySlayerServiceOperation -Operation $Operation -Phase $Phase }
+        'Task' { Invoke-TelemetrySlayerTaskOperation -Operation $Operation -Phase $Phase }
+        'Firewall' { Invoke-TelemetrySlayerFirewallOperation -Operation $Operation -Phase $Phase }
+        'File' { Invoke-TelemetrySlayerFileOperation -Operation $Operation -Phase $Phase }
+        'Process' { Invoke-TelemetrySlayerProcessOperation -Operation $Operation -Phase $Phase }
+        'Gpupdate' { Invoke-TelemetrySlayerGpupdateOperation -Operation $Operation -Phase $Phase }
+        default { throw "Unknown TelemetrySlayer operation kind: $($Operation.Kind)" }
+    }
+}
+
+function Invoke-TelemetrySlayerActionPhase {
+    param(
+        [Parameter(Mandatory = $true)]$Action,
+        [Parameter(Mandatory = $true)][ValidateSet('Test', 'Apply', 'Verify', 'Undo')][string]$Phase
+    )
+
+    foreach ($operation in $Action.Operations) {
+        if ($operation.Phases -contains $Phase) {
+            Invoke-TelemetrySlayerOperation -Operation $operation -Phase $Phase
+        }
+    }
+}
+
+function Invoke-TelemetrySlayerFinalizePhase {
+    param([Parameter(Mandatory = $true)][ValidateSet('Apply', 'Undo')][string]$Phase)
+    Invoke-TelemetrySlayerOperation -Operation (Get-TelemetrySlayerFinalizeOperation) -Phase $Phase
+}
+
+if ($ActionCatalogOnly) {
+    return
+}
 
 # --- Auto-elevate ---
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
@@ -22,7 +364,7 @@ Add-Type -Name Win -Namespace Native -MemberDefinition @'
 $xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="TelemetrySlayer v1.3.0" Width="820" Height="750"
+        Title="TelemetrySlayer v1.4.0" Width="820" Height="750"
         WindowStartupLocation="CenterScreen" Background="#0d1117"
         ResizeMode="CanResizeWithGrip" MinWidth="750" MinHeight="600">
     <Window.Resources>
@@ -739,7 +1081,7 @@ $btnApply.Add_Click({
 
         $backupManifest = [ordered]@{
             SchemaVersion = 1
-            ToolVersion = '1.3.0'
+            ToolVersion = '1.4.0'
             CreatedAt = (Get-Date).ToString('o')
             ComputerName = $env:COMPUTERNAME
             BackupPath = $backupPath
@@ -755,7 +1097,7 @@ $btnApply.Add_Click({
 
         $restore = [ordered]@{
             SchemaVersion = 1
-            ToolVersion = '1.3.0'
+            ToolVersion = '1.4.0'
             CreatedAt = (Get-Date).ToString('o')
             ComputerName = $env:COMPUTERNAME
             Registry = [ordered]@{}

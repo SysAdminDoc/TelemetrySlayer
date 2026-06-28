@@ -2,6 +2,12 @@
 
 All notable changes to TelemetrySlayer will be documented in this file.
 
+## [v1.4.0] - 2026-06-28
+
+- Added `-ActionCatalogOnly` test mode that loads action catalog and mockable dispatch helpers before elevation.
+- Added mocked Pester coverage for every checkbox across Test, Apply, Verify, and Undo phases.
+- Covered registry, service, scheduled-task, firewall, file, process, and gpupdate operation dispatch without touching the host OS.
+
 ## [v1.3.0] - 2026-06-28
 
 - Added preflight recovery bundles under `%ProgramData%\TelemetrySlayer\Backups`.
