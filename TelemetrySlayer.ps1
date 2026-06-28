@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# TelemetrySlayer v1.1.0
+# TelemetrySlayer v1.2.0
 # Disables Microsoft telemetry, data collection, and related bloat on Windows 10/11
 
 # --- Auto-elevate ---
@@ -22,7 +22,7 @@ Add-Type -Name Win -Namespace Native -MemberDefinition @'
 $xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="TelemetrySlayer v1.1.0" Width="820" Height="750"
+        Title="TelemetrySlayer v1.2.0" Width="820" Height="750"
         WindowStartupLocation="CenterScreen" Background="#0d1117"
         ResizeMode="CanResizeWithGrip" MinWidth="750" MinHeight="600">
     <Window.Resources>
@@ -423,15 +423,14 @@ $xaml = @'
 
 $window = [System.Windows.Markup.XamlReader]::Parse($xaml)
 
-# codex-branding:start
                 try {
                     $brandingIconPath = Join-Path $PSScriptRoot 'icon.ico'
                     if (Test-Path $brandingIconPath) {
                         $window.Icon = [System.Windows.Media.Imaging.BitmapFrame]::Create((New-Object System.Uri($brandingIconPath)))
                     }
                 } catch {
+                    [System.Diagnostics.Debug]::WriteLine("TelemetrySlayer icon load failed: $($_.Exception.Message)")
                 }
-                # codex-branding:end
 # --- Find controls ---
 $txtLog       = $window.FindName('txtLog')
 $txtStatus    = $window.FindName('txtStatus')
@@ -527,9 +526,9 @@ function RunScan {
             } catch { $scanQueue.Enqueue("$IndName=N/A") }
         }
 
-        function CheckTask([string]$TaskName, [string]$IndName) {
+        function CheckTask([string]$TaskName, [string]$TaskPath, [string]$IndName) {
             try {
-                $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+                $task = Get-ScheduledTask -TaskName $TaskName -TaskPath $TaskPath -ErrorAction SilentlyContinue
                 if (-not $task) { $scanQueue.Enqueue("$IndName=N/A"); return }
                 if ($task.State -eq 'Disabled') { $scanQueue.Enqueue("$IndName=OFF") }
                 else { $scanQueue.Enqueue("$IndName=ON") }
@@ -562,16 +561,17 @@ function RunScan {
         CheckSvc 'DPS' 'indDPS'
 
         # Scheduled Tasks
-        CheckTask 'Microsoft Compatibility Appraiser' 'indCompatAppraiser'
-        CheckTask 'ProgramDataUpdater' 'indProgramDataUpdater'
-        CheckTask 'StartupAppTask' 'indStartupAppTask'
-        CheckTask 'Proxy' 'indProxy'
-        CheckTask 'Consolidator' 'indConsolidator'
-        CheckTask 'UsbCeip' 'indUsbCeip'
-        CheckTask 'KernelCeipTask' 'indKernelCeip'
-        CheckTask 'Microsoft-Windows-DiskDiagnosticDataCollector' 'indDiskDiag'
-        CheckTask 'SmartScreenSpecific' 'indSmartScreen'
-        CheckTask 'PcaPatchDbTask' 'indPcaPatchDb'
+        $appExpPath = '\Microsoft\Windows\Application Experience\'
+        CheckTask 'Microsoft Compatibility Appraiser' $appExpPath 'indCompatAppraiser'
+        CheckTask 'ProgramDataUpdater' $appExpPath 'indProgramDataUpdater'
+        CheckTask 'StartupAppTask' $appExpPath 'indStartupAppTask'
+        CheckTask 'PcaPatchDbTask' $appExpPath 'indPcaPatchDb'
+        CheckTask 'Proxy' '\Microsoft\Windows\Autochk\' 'indProxy'
+        CheckTask 'Consolidator' '\Microsoft\Windows\Customer Experience Improvement Program\' 'indConsolidator'
+        CheckTask 'UsbCeip' '\Microsoft\Windows\Customer Experience Improvement Program\' 'indUsbCeip'
+        CheckTask 'KernelCeipTask' '\Microsoft\Windows\Customer Experience Improvement Program\' 'indKernelCeip'
+        CheckTask 'Microsoft-Windows-DiskDiagnosticDataCollector' '\Microsoft\Windows\DiskDiagnostic\' 'indDiskDiag'
+        CheckTask 'SmartScreenSpecific' '\Microsoft\Windows\AppID\' 'indSmartScreen'
 
         # Registry / Policy
         CheckReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' 0 'indAllowTelemetry'
@@ -604,7 +604,7 @@ function RunScan {
 
         # Nvidia
         CheckSvc 'NvTelemetryContainer' 'indNvidiaSvc'
-        CheckTask 'NvTmMon_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}' 'indNvidiaTasks'
+        CheckTask 'NvTmMon_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}' '\' 'indNvidiaTasks'
         CheckReg 'HKLM:\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client' 'Optimus_EnableTelemetry' 0 'indNvidiaReg'
 
         # Edge
@@ -633,7 +633,6 @@ function RunScan {
 
                 # Count applied items
                 $applied = 0
-                $total = $allIndicatorNames.Count
                 foreach ($indName in $allIndicatorNames) {
                     $ind = $allIndicators[$indName]
                     if ($ind.Text -eq 'OFF') { $applied++ }
@@ -711,40 +710,307 @@ $btnApply.Add_Click({
             $logQueue.Enqueue("[$ts] $msg")
         }
 
+        $stateRoot = Join-Path $env:ProgramData 'TelemetrySlayer\State'
+        try {
+            if (-not (Test-Path -LiteralPath $stateRoot)) {
+                New-Item -Path $stateRoot -ItemType Directory -Force | Out-Null
+            }
+            $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+            $restorePath = Join-Path $stateRoot "restore-$stamp.json"
+            $latestRestorePath = Join-Path $stateRoot 'restore-latest.json'
+        } catch {
+            Log "  FAIL restore snapshot initialization - $($_.Exception.Message)"
+            Log "DONE"
+            return
+        }
+
+        $restore = [ordered]@{
+            SchemaVersion = 1
+            ToolVersion = '1.2.0'
+            CreatedAt = (Get-Date).ToString('o')
+            ComputerName = $env:COMPUTERNAME
+            Registry = [ordered]@{}
+            Services = [ordered]@{}
+            Tasks = [ordered]@{}
+            Firewall = [ordered]@{}
+        }
+
+        function GetStateKey([string]$Category, [string]$Name) {
+            return [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("$Category|$Name"))
+        }
+
+        function SaveRestoreState {
+            try {
+                $json = $restore | ConvertTo-Json -Depth 20
+                Set-Content -LiteralPath $restorePath -Value $json -Encoding UTF8 -ErrorAction Stop
+                Set-Content -LiteralPath $latestRestorePath -Value $json -Encoding UTF8 -ErrorAction Stop
+                return $true
+            } catch {
+                Log "  WARN restore snapshot save failed - $($_.Exception.Message)"
+                return $false
+            }
+        }
+
+        if (-not (SaveRestoreState)) {
+            Log "DONE"
+            return
+        }
+        Log "Restore snapshot: $restorePath"
+
+        function OpenRegistryKeyForRead([string]$Path) {
+            if ($Path -match '^HKLM:\\(.+)$') {
+                $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Default)
+                return $base.OpenSubKey($Matches[1], $false)
+            }
+            if ($Path -match '^HKCU:\\(.+)$') {
+                $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Default)
+                return $base.OpenSubKey($Matches[1], $false)
+            }
+            return $null
+        }
+
+        function CaptureRegValue([string]$Path, [string]$Name) {
+            $id = GetStateKey 'reg' "$Path|$Name"
+            if ($restore.Registry.Contains($id)) { return }
+
+            $pathExists = Test-Path -LiteralPath $Path
+            $valueExists = $false
+            $value = $null
+            $kind = $null
+            $key = $null
+
+            try {
+                $key = OpenRegistryKeyForRead $Path
+                if ($key) {
+                    $valueNames = @($key.GetValueNames())
+                    if ($valueNames -contains $Name) {
+                        $valueExists = $true
+                        $value = $key.GetValue($Name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                        $kind = $key.GetValueKind($Name).ToString()
+                    }
+                }
+            } catch {
+                Log "  WARN registry snapshot failed for $Path\$Name - $($_.Exception.Message)"
+            } finally {
+                if ($key) { $key.Close() }
+            }
+
+            $restore.Registry[$id] = [ordered]@{
+                Path = $Path
+                Name = $Name
+                PathExisted = [bool]$pathExists
+                ValueExists = [bool]$valueExists
+                Kind = $kind
+                Value = $value
+            }
+            SaveRestoreState | Out-Null
+        }
+
+        function GetServiceInfo([string]$Name) {
+            $filterName = $Name.Replace("'", "''")
+            return Get-CimInstance -ClassName Win32_Service -Filter "Name='$filterName'" -ErrorAction SilentlyContinue
+        }
+
+        function CaptureSvc([string]$Name) {
+            $id = GetStateKey 'svc' $Name
+            if ($restore.Services.Contains($id)) { return }
+
+            $svc = GetServiceInfo $Name
+            $servicePath = "HKLM:\SYSTEM\CurrentControlSet\Services\$Name"
+            $startValue = $null
+            $delayedAutoStart = $null
+            if (Test-Path -LiteralPath $servicePath) {
+                $serviceProps = Get-ItemProperty -LiteralPath $servicePath -ErrorAction SilentlyContinue
+                if ($serviceProps) {
+                    $startValue = $serviceProps.Start
+                    $delayedAutoStart = $serviceProps.DelayedAutoStart
+                }
+            }
+
+            $restore.Services[$id] = [ordered]@{
+                Name = $Name
+                Exists = [bool]($null -ne $svc)
+                DisplayName = if ($svc) { $svc.DisplayName } else { $null }
+                StartMode = if ($svc) { $svc.StartMode } else { $null }
+                State = if ($svc) { $svc.State } else { $null }
+                Status = if ($svc) { $svc.Status } else { $null }
+                StartValue = $startValue
+                DelayedAutoStart = $delayedAutoStart
+            }
+            SaveRestoreState | Out-Null
+        }
+
+        function QuoteProcessArgument([string]$Value) {
+            if ($Value -match '[\s"]') {
+                return '"' + ($Value -replace '"', '\"') + '"'
+            }
+            return $Value
+        }
+
+        function InvokeSc([string[]]$Arguments, [int]$TimeoutSeconds = 20, [int]$Retries = 1) {
+            $scExe = Join-Path $env:SystemRoot 'System32\sc.exe'
+            $displayArgs = $Arguments -join ' '
+
+            for ($attempt = 0; $attempt -le $Retries; $attempt++) {
+                $process = New-Object System.Diagnostics.Process
+                $process.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+                $process.StartInfo.FileName = $scExe
+                $process.StartInfo.Arguments = (($Arguments | ForEach-Object { QuoteProcessArgument $_ }) -join ' ')
+                $process.StartInfo.UseShellExecute = $false
+                $process.StartInfo.RedirectStandardOutput = $true
+                $process.StartInfo.RedirectStandardError = $true
+                $process.StartInfo.CreateNoWindow = $true
+
+                try {
+                    [void]$process.Start()
+                    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+                        try { $process.Kill() } catch { Log "  WARN failed to kill timed-out sc.exe - $($_.Exception.Message)" }
+                        Log "  WARN sc.exe $displayArgs timed out after ${TimeoutSeconds}s"
+                    } else {
+                        $stdout = $process.StandardOutput.ReadToEnd()
+                        $stderr = $process.StandardError.ReadToEnd()
+                        $detail = (($stdout, $stderr) -join ' ').Trim()
+                        if ($process.ExitCode -eq 0) { return $true }
+                        if ($detail.Length -gt 180) { $detail = $detail.Substring(0, 180) + '...' }
+                        Log "  WARN sc.exe $displayArgs exit $($process.ExitCode): $detail"
+                    }
+                } catch {
+                    Log "  WARN sc.exe $displayArgs failed - $($_.Exception.Message)"
+                } finally {
+                    $process.Dispose()
+                }
+
+                if ($attempt -lt $Retries) {
+                    Start-Sleep -Milliseconds (500 * ($attempt + 1))
+                }
+            }
+
+            return $false
+        }
+
+        function WaitServiceState([string]$Name, [string]$ExpectedState, [int]$TimeoutSeconds = 20) {
+            $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+            do {
+                $svc = GetServiceInfo $Name
+                if ($svc -and $svc.State -eq $ExpectedState) { return $true }
+                Start-Sleep -Milliseconds 500
+            } while ((Get-Date) -lt $deadline)
+            return $false
+        }
+
         function SetReg([string]$Path, [string]$Name, $Value, [string]$Type = 'DWord') {
             try {
+                CaptureRegValue $Path $Name
                 if (-not (Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
-                Set-ItemProperty -LiteralPath $Path -Name $Name -Value $Value -Type $Type -Force
+                New-ItemProperty -LiteralPath $Path -Name $Name -Value $Value -PropertyType $Type -Force -ErrorAction Stop | Out-Null
                 Log "  SET $Path\$Name = $Value"
             } catch { Log "  FAIL $Path\$Name - $($_.Exception.Message)" }
         }
 
         function DisableSvc([string]$Name, [string]$Display) {
             try {
-                $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+                CaptureSvc $Name
+                $svc = GetServiceInfo $Name
                 if ($svc) {
-                    if ($svc.Status -eq 'Running') {
+                    if ($svc.State -eq 'Running') {
                         Log "  Stopping service: $Display ($Name)..."
-                        Stop-Service -Name $Name -Force -ErrorAction SilentlyContinue
+                        InvokeSc @('stop', $Name) 20 2 | Out-Null
+                        if (-not (WaitServiceState $Name 'Stopped' 20)) {
+                            Log "  WARN service did not stop within timeout: $Display ($Name)"
+                        }
                     }
-                    Set-Service -Name $Name -StartupType Disabled -ErrorAction Stop
-                    Log "  Disabled service: $Display ($Name)"
+                    if (InvokeSc @('config', $Name, 'start=', 'disabled') 20 2) {
+                        Log "  Disabled service: $Display ($Name)"
+                    } else {
+                        Log "  FAIL service startup change: $Display ($Name)"
+                    }
                 } else { Log "  Service not found: $Name (OK - may not exist on this edition)" }
             } catch { Log "  FAIL service $Name - $($_.Exception.Message)" }
         }
 
+        function GetExactTask([string]$Name, [string]$TaskPath) {
+            try {
+                if ($TaskPath) {
+                    return Get-ScheduledTask -TaskName $Name -TaskPath $TaskPath -ErrorAction SilentlyContinue
+                }
+                return Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue | Select-Object -First 1
+            } catch {
+                return $null
+            }
+        }
+
+        function CaptureTask([string]$Name, [string]$TaskPath) {
+            $id = GetStateKey 'task' "$TaskPath|$Name"
+            if ($restore.Tasks.Contains($id)) { return }
+
+            $task = GetExactTask $Name $TaskPath
+            $restore.Tasks[$id] = [ordered]@{
+                TaskName = $Name
+                TaskPath = $TaskPath
+                Exists = [bool]($null -ne $task)
+                State = if ($task) { $task.State.ToString() } else { $null }
+                Enabled = if ($task) { $task.State.ToString() -ne 'Disabled' } else { $false }
+            }
+            SaveRestoreState | Out-Null
+        }
+
         function DisableTask([string]$Name, [string]$TaskPath) {
             try {
-                $task = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
+                CaptureTask $Name $TaskPath
+                $task = GetExactTask $Name $TaskPath
                 if ($task) {
                     Disable-ScheduledTask -TaskName $Name -TaskPath $TaskPath -ErrorAction Stop | Out-Null
-                    Log "  Disabled task: $Name"
+                    Log "  Disabled task: $TaskPath$Name"
                 } else { Log "  Task not found: $Name (OK)" }
             } catch { Log "  FAIL task $Name - $($_.Exception.Message)" }
         }
 
+        function CaptureFirewallRule([string]$DisplayName) {
+            $id = GetStateKey 'fw' $DisplayName
+            if ($restore.Firewall.Contains($id)) { return }
+
+            $rules = @(Get-NetFirewallRule -DisplayName $DisplayName -ErrorAction SilentlyContinue)
+            $items = @()
+            foreach ($rule in $rules) {
+                $app = $null
+                $svc = $null
+                $port = $null
+                $addr = $null
+                try { $app = Get-NetFirewallApplicationFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue | Select-Object -First 1 } catch { Log "  WARN firewall application snapshot failed - $($_.Exception.Message)" }
+                try { $svc = Get-NetFirewallServiceFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue | Select-Object -First 1 } catch { Log "  WARN firewall service snapshot failed - $($_.Exception.Message)" }
+                try { $port = Get-NetFirewallPortFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue | Select-Object -First 1 } catch { Log "  WARN firewall port snapshot failed - $($_.Exception.Message)" }
+                try { $addr = Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue | Select-Object -First 1 } catch { Log "  WARN firewall address snapshot failed - $($_.Exception.Message)" }
+
+                $items += [ordered]@{
+                    Name = $rule.Name
+                    DisplayName = $rule.DisplayName
+                    Description = $rule.Description
+                    Group = $rule.Group
+                    Enabled = $rule.Enabled.ToString()
+                    Profile = $rule.Profile.ToString()
+                    Direction = $rule.Direction.ToString()
+                    Action = $rule.Action.ToString()
+                    EdgeTraversalPolicy = $rule.EdgeTraversalPolicy.ToString()
+                    Program = if ($app) { $app.Program } else { $null }
+                    Service = if ($svc) { $svc.Service } else { $null }
+                    Protocol = if ($port) { $port.Protocol } else { $null }
+                    LocalPort = if ($port) { $port.LocalPort } else { $null }
+                    RemotePort = if ($port) { $port.RemotePort } else { $null }
+                    LocalAddress = if ($addr) { $addr.LocalAddress } else { $null }
+                    RemoteAddress = if ($addr) { $addr.RemoteAddress } else { $null }
+                }
+            }
+
+            $restore.Firewall[$id] = [ordered]@{
+                DisplayName = $DisplayName
+                Rules = $items
+            }
+            SaveRestoreState | Out-Null
+        }
+
         function AddFW([string]$DisplayName, [string]$Program, [string]$Service) {
             try {
+                CaptureFirewallRule $DisplayName
                 $existing = Get-NetFirewallRule -DisplayName $DisplayName -ErrorAction SilentlyContinue
                 if ($existing) { Log "  Firewall rule already exists: $DisplayName"; return }
                 $params = @{ DisplayName=$DisplayName; Direction='Outbound'; Action='Block'; Enabled='True'; Group='TelemetrySlayer'; Protocol='TCP'; RemotePort=@(80,443) }
@@ -944,13 +1210,7 @@ $btnApply.Add_Click({
                                      'NvTmRep_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}',
                                      'NvProfileUpdaterDaily_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}',
                                      'NvProfileUpdaterOnLogon_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}')) {
-                try {
-                    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-                    if ($task) {
-                        Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
-                        Log "  Disabled task: $taskName"
-                    } else { Log "  Task not found: $taskName (OK)" }
-                } catch { Log "  FAIL task $taskName - $($_.Exception.Message)" }
+                DisableTask $taskName $nvTaskPath
             }
         }
 
@@ -1015,6 +1275,7 @@ $btnApply.Add_Click({
             Log "  Group Policy updated"
         } catch { Log "  gpupdate skipped" }
 
+        SaveRestoreState | Out-Null
         Log ""
         Log "=== COMPLETE ==="
         $count = ($opts.Values | Where-Object { $_ -eq $true }).Count
@@ -1072,197 +1333,333 @@ $btnUndo.Add_Click({
             $logQueue.Enqueue("[$ts] $msg")
         }
 
-        function DelReg([string]$Path, [string]$Name) {
+        $stateRoot = Join-Path $env:ProgramData 'TelemetrySlayer\State'
+        $latestRestorePath = Join-Path $stateRoot 'restore-latest.json'
+        if (-not (Test-Path -LiteralPath $latestRestorePath)) {
+            Log "No restore snapshot found at $latestRestorePath. Run Apply once before exact Undo."
+            Log "DONE"
+            return
+        }
+
+        try {
+            $restore = Get-Content -LiteralPath $latestRestorePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            Log "Using restore snapshot from $($restore.CreatedAt)"
+        } catch {
+            Log "  FAIL reading restore snapshot - $($_.Exception.Message)"
+            Log "DONE"
+            return
+        }
+
+        function GetObjectProperties($Object) {
+            if ($null -eq $Object) { return @() }
+            return @($Object.PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' })
+        }
+
+        function ConvertJsonValueForRegistry($Value, [string]$Kind) {
+            if ($null -eq $Value) { return $null }
+            switch ($Kind) {
+                'DWord' { return [int]$Value }
+                'QWord' { return [long]$Value }
+                'Binary' { return [byte[]]@($Value) }
+                'MultiString' { return [string[]]@($Value) }
+                default { return $Value }
+            }
+        }
+
+        function TestRegistryKeyEmpty([string]$Path) {
             try {
-                if (Test-Path $Path) {
-                    $val = Get-ItemProperty -LiteralPath $Path -Name $Name -ErrorAction SilentlyContinue
-                    if ($null -ne $val -and $null -ne $val.$Name) {
-                        Remove-ItemProperty -LiteralPath $Path -Name $Name -Force -ErrorAction Stop
-                        Log "  DEL $Path\$Name"
+                if (-not (Test-Path -LiteralPath $Path)) { return $false }
+                $props = Get-ItemProperty -LiteralPath $Path -ErrorAction Stop
+                $realProps = @($props.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' })
+                $children = @(Get-ChildItem -LiteralPath $Path -ErrorAction SilentlyContinue)
+                return ($realProps.Count -eq 0 -and $children.Count -eq 0)
+            } catch {
+                return $false
+            }
+        }
+
+        function RestoreRegValue($Item, [hashtable]$CreatedPaths) {
+            try {
+                if (-not [bool]$Item.PathExisted) {
+                    $CreatedPaths[$Item.Path] = $true
+                }
+
+                if ([bool]$Item.ValueExists) {
+                    if (-not (Test-Path -LiteralPath $Item.Path)) {
+                        New-Item -Path $Item.Path -Force | Out-Null
+                    }
+                    $value = ConvertJsonValueForRegistry $Item.Value $Item.Kind
+                    if ($Item.Kind) {
+                        New-ItemProperty -LiteralPath $Item.Path -Name $Item.Name -Value $value -PropertyType $Item.Kind -Force -ErrorAction Stop | Out-Null
+                    } else {
+                        Set-ItemProperty -LiteralPath $Item.Path -Name $Item.Name -Value $value -Force -ErrorAction Stop
+                    }
+                    Log "  RESTORE $($Item.Path)\$($Item.Name)"
+                } else {
+                    if (Test-Path -LiteralPath $Item.Path) {
+                        $props = Get-ItemProperty -LiteralPath $Item.Path -ErrorAction SilentlyContinue
+                        $prop = $null
+                        if ($props) {
+                            $prop = $props.PSObject.Properties | Where-Object { $_.Name -eq $Item.Name } | Select-Object -First 1
+                        }
+                        if ($prop) {
+                            Remove-ItemProperty -LiteralPath $Item.Path -Name $Item.Name -Force -ErrorAction Stop
+                            Log "  RESTORE absent $($Item.Path)\$($Item.Name)"
+                        }
                     }
                 }
-            } catch { Log "  FAIL del $Path\$Name - $($_.Exception.Message)" }
+            } catch {
+                Log "  FAIL restore registry $($Item.Path)\$($Item.Name) - $($_.Exception.Message)"
+            }
         }
 
-        function EnableSvc([string]$Name, [string]$Display) {
+        function QuoteProcessArgument([string]$Value) {
+            if ($Value -match '[\s"]') {
+                return '"' + ($Value -replace '"', '\"') + '"'
+            }
+            return $Value
+        }
+
+        function InvokeSc([string[]]$Arguments, [int]$TimeoutSeconds = 20, [int]$Retries = 1) {
+            $scExe = Join-Path $env:SystemRoot 'System32\sc.exe'
+            $displayArgs = $Arguments -join ' '
+
+            for ($attempt = 0; $attempt -le $Retries; $attempt++) {
+                $process = New-Object System.Diagnostics.Process
+                $process.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+                $process.StartInfo.FileName = $scExe
+                $process.StartInfo.Arguments = (($Arguments | ForEach-Object { QuoteProcessArgument $_ }) -join ' ')
+                $process.StartInfo.UseShellExecute = $false
+                $process.StartInfo.RedirectStandardOutput = $true
+                $process.StartInfo.RedirectStandardError = $true
+                $process.StartInfo.CreateNoWindow = $true
+
+                try {
+                    [void]$process.Start()
+                    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+                        try { $process.Kill() } catch { Log "  WARN failed to kill timed-out sc.exe - $($_.Exception.Message)" }
+                        Log "  WARN sc.exe $displayArgs timed out after ${TimeoutSeconds}s"
+                    } else {
+                        $stdout = $process.StandardOutput.ReadToEnd()
+                        $stderr = $process.StandardError.ReadToEnd()
+                        $detail = (($stdout, $stderr) -join ' ').Trim()
+                        if ($process.ExitCode -eq 0) { return $true }
+                        if ($detail.Length -gt 180) { $detail = $detail.Substring(0, 180) + '...' }
+                        Log "  WARN sc.exe $displayArgs exit $($process.ExitCode): $detail"
+                    }
+                } catch {
+                    Log "  WARN sc.exe $displayArgs failed - $($_.Exception.Message)"
+                } finally {
+                    $process.Dispose()
+                }
+
+                if ($attempt -lt $Retries) {
+                    Start-Sleep -Milliseconds (500 * ($attempt + 1))
+                }
+            }
+
+            return $false
+        }
+
+        function GetServiceInfo([string]$Name) {
+            $filterName = $Name.Replace("'", "''")
+            return Get-CimInstance -ClassName Win32_Service -Filter "Name='$filterName'" -ErrorAction SilentlyContinue
+        }
+
+        function WaitServiceState([string]$Name, [string]$ExpectedState, [int]$TimeoutSeconds = 20) {
+            $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+            do {
+                $svc = GetServiceInfo $Name
+                if ($svc -and $svc.State -eq $ExpectedState) { return $true }
+                Start-Sleep -Milliseconds 500
+            } while ((Get-Date) -lt $deadline)
+            return $false
+        }
+
+        function GetScStartArgument($Item) {
+            if ($null -ne $Item.StartValue) {
+                switch ([int]$Item.StartValue) {
+                    2 { return 'auto' }
+                    3 { return 'demand' }
+                    4 { return 'disabled' }
+                }
+            }
+
+            switch ($Item.StartMode) {
+                'Auto' { return 'auto' }
+                'Manual' { return 'demand' }
+                'Disabled' { return 'disabled' }
+            }
+
+            return $null
+        }
+
+        function RestoreSvc($Item) {
+            if (-not [bool]$Item.Exists) {
+                Log "  Service absent before apply: $($Item.Name)"
+                return
+            }
+
             try {
-                $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
-                if ($svc) {
-                    Set-Service -Name $Name -StartupType Manual -ErrorAction Stop
-                    Log "  Re-enabled service: $Display ($Name) -> Manual"
-                } else { Log "  Service not found: $Name (OK)" }
-            } catch { Log "  FAIL enable service $Name - $($_.Exception.Message)" }
+                $startArg = GetScStartArgument $Item
+                if ($startArg) {
+                    InvokeSc @('config', $Item.Name, 'start=', $startArg) 20 2 | Out-Null
+                }
+
+                $servicePath = "HKLM:\SYSTEM\CurrentControlSet\Services\$($Item.Name)"
+                if (Test-Path -LiteralPath $servicePath) {
+                    if ($null -ne $Item.DelayedAutoStart) {
+                        New-ItemProperty -LiteralPath $servicePath -Name 'DelayedAutoStart' -Value ([int]$Item.DelayedAutoStart) -PropertyType DWord -Force -ErrorAction SilentlyContinue | Out-Null
+                    } else {
+                        Remove-ItemProperty -LiteralPath $servicePath -Name 'DelayedAutoStart' -Force -ErrorAction SilentlyContinue
+                    }
+                }
+
+                $current = GetServiceInfo $Item.Name
+                if ($Item.State -eq 'Running') {
+                    if (-not $current -or $current.State -ne 'Running') {
+                        InvokeSc @('start', $Item.Name) 20 2 | Out-Null
+                        WaitServiceState $Item.Name 'Running' 20 | Out-Null
+                    }
+                } elseif ($current -and $current.State -eq 'Running') {
+                    InvokeSc @('stop', $Item.Name) 20 2 | Out-Null
+                    WaitServiceState $Item.Name 'Stopped' 20 | Out-Null
+                }
+
+                Log "  Restored service: $($Item.Name) startup=$($Item.StartMode) state=$($Item.State)"
+            } catch {
+                Log "  FAIL restore service $($Item.Name) - $($_.Exception.Message)"
+            }
         }
 
-        function EnableTask([string]$Name) {
+        function GetExactTask([string]$Name, [string]$TaskPath) {
             try {
-                $task = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
-                if ($task -and $task.State -eq 'Disabled') {
-                    Enable-ScheduledTask -TaskName $Name -ErrorAction Stop | Out-Null
-                    Log "  Re-enabled task: $Name"
-                } elseif (-not $task) { Log "  Task not found: $Name (OK)" }
-                else { Log "  Task already enabled: $Name" }
-            } catch { Log "  FAIL enable task $Name - $($_.Exception.Message)" }
+                return Get-ScheduledTask -TaskName $Name -TaskPath $TaskPath -ErrorAction SilentlyContinue
+            } catch {
+                return $null
+            }
         }
 
-        # ========================
-        #  RE-ENABLE SERVICES
-        # ========================
-        Log "=== RE-ENABLING SERVICES ==="
-        EnableSvc 'DiagTrack' 'Connected User Experiences and Telemetry'
-        EnableSvc 'dmwappushservice' 'WAP Push Message Routing'
-        EnableSvc 'WerSvc' 'Windows Error Reporting'
-        EnableSvc 'PcaSvc' 'Program Compatibility Assistant'
-        EnableSvc 'diagsvc' 'Diagnostic Service Host'
-        EnableSvc 'DPS' 'Diagnostic Policy Service'
-        EnableSvc 'NvTelemetryContainer' 'Nvidia Telemetry Container'
-        EnableSvc 'VSStandardCollectorService150' 'VS Standard Collector Service'
+        function RestoreTask($Item) {
+            if (-not [bool]$Item.Exists) {
+                Log "  Task absent before apply: $($Item.TaskPath)$($Item.TaskName)"
+                return
+            }
 
-        # ========================
-        #  RE-ENABLE TASKS
-        # ========================
-        Log ""
-        Log "=== RE-ENABLING SCHEDULED TASKS ==="
-        EnableTask 'Microsoft Compatibility Appraiser'
-        EnableTask 'ProgramDataUpdater'
-        EnableTask 'StartupAppTask'
-        EnableTask 'PcaPatchDbTask'
-        EnableTask 'Proxy'
-        EnableTask 'Consolidator'
-        EnableTask 'UsbCeip'
-        EnableTask 'KernelCeipTask'
-        EnableTask 'Microsoft-Windows-DiskDiagnosticDataCollector'
-        EnableTask 'SmartScreenSpecific'
-        EnableTask 'NvTmMon_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}'
-        EnableTask 'NvTmRep_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}'
-        EnableTask 'NvProfileUpdaterDaily_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}'
-        EnableTask 'NvProfileUpdaterOnLogon_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}'
+            try {
+                $task = GetExactTask $Item.TaskName $Item.TaskPath
+                if (-not $task) {
+                    Log "  FAIL restore task missing: $($Item.TaskPath)$($Item.TaskName)"
+                    return
+                }
 
-        # ========================
-        #  REMOVE FIREWALL RULES
-        # ========================
-        Log ""
-        Log "=== REMOVING FIREWALL RULES ==="
-        try {
-            $rules = Get-NetFirewallRule -Group 'TelemetrySlayer' -ErrorAction SilentlyContinue
-            if ($rules) {
-                $rules | Remove-NetFirewallRule -ErrorAction Stop
-                Log "  Removed all TelemetrySlayer firewall rules"
-            } else { Log "  No TelemetrySlayer firewall rules found" }
-        } catch { Log "  FAIL removing firewall rules - $($_.Exception.Message)" }
-
-        # ========================
-        #  REMOVE IFEO
-        # ========================
-        Log ""
-        Log "=== REMOVING IFEO ==="
-        $ifeoPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\CompatTelRunner.exe'
-        try {
-            if (Test-Path $ifeoPath) {
-                Remove-Item -LiteralPath $ifeoPath -Recurse -Force -ErrorAction Stop
-                Log "  Removed IFEO entry for CompatTelRunner.exe"
-            } else { Log "  No IFEO entry found (OK)" }
-        } catch { Log "  FAIL removing IFEO - $($_.Exception.Message)" }
-
-        # ========================
-        #  REMOVE REGISTRY POLICIES
-        # ========================
-        Log ""
-        Log "=== REMOVING REGISTRY POLICIES ==="
-
-        # Windows telemetry
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'MaxTelemetryAllowed'
-        DelReg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection' 'AllowTelemetry'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'DoNotShowFeedbackNotifications'
-
-        # Advertising ID
-        DelReg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo' 'Enabled'
-        DelReg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo' 'Enabled'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo' 'DisabledByGroupPolicy'
-
-        # Linguistic
-        DelReg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\TextInput' 'AllowLinguisticDataCollection'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\InputPersonalization' 'AllowInputPersonalization'
-
-        # Tailored Experiences
-        DelReg 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableTailoredExperiencesWithDiagnosticData'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsConsumerFeatures'
-        DelReg 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Privacy' 'TailoredExperiencesWithDiagnosticDataEnabled'
-
-        # Feedback
-        DelReg 'HKCU:\SOFTWARE\Microsoft\Siuf\Rules' 'NumberOfSIUFInPeriod'
-        DelReg 'HKCU:\SOFTWARE\Microsoft\Siuf\Rules' 'PeriodInNanoSeconds'
-
-        # Activity Feed
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'EnableActivityFeed'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'PublishUserActivities'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'UploadUserActivities'
-
-        # Location
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableLocation'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableWindowsLocationProvider'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableLocationScripting'
-
-        # Input Personalization
-        DelReg 'HKCU:\SOFTWARE\Microsoft\InputPersonalization' 'RestrictImplicitInkCollection'
-        DelReg 'HKCU:\SOFTWARE\Microsoft\InputPersonalization' 'RestrictImplicitTextCollection'
-        DelReg 'HKCU:\SOFTWARE\Microsoft\InputPersonalization\TrainedDataStore' 'HarvestContacts'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\TabletPC' 'PreventHandwritingDataSharing'
-        DelReg 'HKCU:\SOFTWARE\Microsoft\Personalization\Settings' 'AcceptedPrivacyPolicy'
-        DelReg 'HKLM:\SOFTWARE\Microsoft\Speech_OneCore\Preferences' 'ModelDownloadAllowed'
-
-        # Handwriting
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\HandwritingErrorReports' 'PreventHandwritingErrorReports'
-
-        # App Compat
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'DisableInventory'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'AITEnable'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'DisableUAR'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'DisablePCA'
-
-        # Wi-Fi
-        DelReg 'HKLM:\SOFTWARE\Microsoft\WcmSvc\wifinetworkmanager\config' 'AutoConnectAllowedOEM'
-        DelReg 'HKLM:\SOFTWARE\Microsoft\PolicyManager\default\WiFi\AllowAutoConnectToWiFiSenseHotspots' 'value'
-        DelReg 'HKLM:\SOFTWARE\Microsoft\PolicyManager\default\WiFi\AllowWiFiHotSpotReporting' 'value'
-
-        # ETL AutoLogger
-        try {
-            Set-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\WMI\Autologger\AutoLogger-Diagtrack-Listener' -Name 'Start' -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
-            Log "  Restored AutoLogger-Diagtrack-Listener Start=1"
-        } catch { Log "  AutoLogger restore skipped" }
-
-        # Office
-        DelReg 'HKCU:\SOFTWARE\Policies\Microsoft\Office\Common\ClientTelemetry' 'DisableTelemetry'
-        DelReg 'HKCU:\SOFTWARE\Policies\Microsoft\Office\Common\ClientTelemetry' 'SendTelemetry'
-        foreach ($ver in @('15.0','16.0')) {
-            DelReg "HKCU:\SOFTWARE\Policies\Microsoft\Office\$ver\osm" 'Enablelogging'
-            DelReg "HKCU:\SOFTWARE\Policies\Microsoft\Office\$ver\osm" 'EnableUpload'
+                if ([bool]$Item.Enabled) {
+                    Enable-ScheduledTask -TaskName $Item.TaskName -TaskPath $Item.TaskPath -ErrorAction Stop | Out-Null
+                    Log "  Restored task enabled: $($Item.TaskPath)$($Item.TaskName)"
+                } else {
+                    Disable-ScheduledTask -TaskName $Item.TaskName -TaskPath $Item.TaskPath -ErrorAction Stop | Out-Null
+                    Log "  Restored task disabled: $($Item.TaskPath)$($Item.TaskName)"
+                }
+            } catch {
+                Log "  FAIL restore task $($Item.TaskPath)$($Item.TaskName) - $($_.Exception.Message)"
+            }
         }
-        DelReg 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Feedback' 'Enabled'
-        DelReg 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Feedback' 'SurveyEnabled'
-        DelReg 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common' 'sendcustomerdata'
-        DelReg 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Privacy' 'DisconnectedState'
-        DelReg 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Privacy' 'ControllerConnectedServicesEnabled'
 
-        # Nvidia
-        DelReg 'HKLM:\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client' 'Optimus_EnableTelemetry'
-        try {
-            Set-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Services\NvTelemetryContainer' -Name 'Start' -Value 2 -Type DWord -Force -ErrorAction SilentlyContinue
-            Log "  Restored NvTelemetryContainer Start=2"
-        } catch { Log "  NvTelemetryContainer restore skipped" }
+        function AddFirewallRuleFromSnapshot($Rule) {
+            $params = @{
+                Name = $Rule.Name
+                DisplayName = $Rule.DisplayName
+                Direction = $Rule.Direction
+                Action = $Rule.Action
+                Enabled = $Rule.Enabled
+                Profile = $Rule.Profile
+            }
+            if ($Rule.Description) { $params['Description'] = $Rule.Description }
+            if ($Rule.Group) { $params['Group'] = $Rule.Group }
+            if ($Rule.EdgeTraversalPolicy -and $Rule.EdgeTraversalPolicy -ne 'Any') { $params['EdgeTraversalPolicy'] = $Rule.EdgeTraversalPolicy }
+            if ($Rule.Program -and $Rule.Program -ne 'Any') { $params['Program'] = $Rule.Program }
+            if ($Rule.Service -and $Rule.Service -ne 'Any') { $params['Service'] = $Rule.Service }
+            if ($Rule.Protocol -and $Rule.Protocol -ne 'Any') { $params['Protocol'] = $Rule.Protocol }
+            if ($Rule.LocalPort -and $Rule.LocalPort -ne 'Any') { $params['LocalPort'] = $Rule.LocalPort }
+            if ($Rule.RemotePort -and $Rule.RemotePort -ne 'Any') { $params['RemotePort'] = $Rule.RemotePort }
+            if ($Rule.LocalAddress -and $Rule.LocalAddress -ne 'Any') { $params['LocalAddress'] = $Rule.LocalAddress }
+            if ($Rule.RemoteAddress -and $Rule.RemoteAddress -ne 'Any') { $params['RemoteAddress'] = $Rule.RemoteAddress }
 
-        # Edge
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiagnosticData'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'PersonalizationReportingEnabled'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'MetricsReportingEnabled'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'SendSiteInfoToImproveServices'
+            New-NetFirewallRule @params -ErrorAction Stop | Out-Null
+        }
 
-        # Visual Studio
-        DelReg 'HKCU:\SOFTWARE\Microsoft\VisualStudio\Telemetry' 'TurnOffSwitch'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableFeedbackDialog'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableEmailInput'
-        DelReg 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableScreenshotCapture'
+        function RestoreFirewallBaseline($Baseline) {
+            try {
+                $displayName = $Baseline.DisplayName
+                $ruleSnapshots = @()
+                if ($Baseline.Rules) { $ruleSnapshots = @($Baseline.Rules) }
+                $baselineNames = @($ruleSnapshots | ForEach-Object { $_.Name })
+                $current = @(Get-NetFirewallRule -DisplayName $displayName -ErrorAction SilentlyContinue)
+
+                foreach ($rule in $current) {
+                    if ($baselineNames -notcontains $rule.Name) {
+                        Remove-NetFirewallRule -Name $rule.Name -ErrorAction Stop
+                        Log "  Removed added firewall rule: $displayName"
+                    }
+                }
+
+                foreach ($ruleSnapshot in $ruleSnapshots) {
+                    $existing = Get-NetFirewallRule -Name $ruleSnapshot.Name -ErrorAction SilentlyContinue
+                    if (-not $existing) {
+                        AddFirewallRuleFromSnapshot $ruleSnapshot
+                        Log "  Recreated firewall rule: $($ruleSnapshot.DisplayName)"
+                    }
+                }
+
+                if ($ruleSnapshots.Count -eq 0 -and $current.Count -eq 0) {
+                    Log "  Firewall baseline already absent: $displayName"
+                } elseif ($ruleSnapshots.Count -gt 0) {
+                    Log "  Preserved firewall baseline: $displayName"
+                }
+            } catch {
+                Log "  FAIL restore firewall $($Baseline.DisplayName) - $($_.Exception.Message)"
+            }
+        }
+
+        Log "=== RESTORING REGISTRY VALUES ==="
+        $createdRegistryPaths = @{}
+        foreach ($prop in (GetObjectProperties $restore.Registry)) {
+            RestoreRegValue $prop.Value $createdRegistryPaths
+        }
+        foreach ($path in ($createdRegistryPaths.Keys | Sort-Object { $_.Length } -Descending)) {
+            if (TestRegistryKeyEmpty $path) {
+                try {
+                    Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+                    Log "  Removed empty created key: $path"
+                } catch {
+                    Log "  WARN could not remove created key $path - $($_.Exception.Message)"
+                }
+            }
+        }
+
+        Log ""
+        Log "=== RESTORING FIREWALL RULES ==="
+        $firewallProps = GetObjectProperties $restore.Firewall
+        if ($firewallProps.Count -eq 0) { Log "  No firewall changes captured" }
+        foreach ($prop in $firewallProps) {
+            RestoreFirewallBaseline $prop.Value
+        }
+
+        Log ""
+        Log "=== RESTORING SCHEDULED TASKS ==="
+        $taskProps = GetObjectProperties $restore.Tasks
+        if ($taskProps.Count -eq 0) { Log "  No scheduled task changes captured" }
+        foreach ($prop in $taskProps) {
+            RestoreTask $prop.Value
+        }
+
+        Log ""
+        Log "=== RESTORING SERVICES ==="
+        $serviceProps = GetObjectProperties $restore.Services
+        if ($serviceProps.Count -eq 0) { Log "  No service changes captured" }
+        foreach ($prop in $serviceProps) {
+            RestoreSvc $prop.Value
+        }
 
         # ========================
         #  FORCE GP UPDATE

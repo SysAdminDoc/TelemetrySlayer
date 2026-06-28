@@ -114,20 +114,6 @@ Forward-looking plans for TelemetrySlayer — a single-file PowerShell WPF tool 
 
 ## Research-Driven Additions
 
-- [ ] P0 - Make Undo All restore exact prior state
-  Why: Current undo deletes registry values and resets services to generic defaults, which can erase pre-existing admin policy or non-default service configuration.
-  Evidence: `TelemetrySlayer.ps1:714`, `TelemetrySlayer.ps1:1075`, `TelemetrySlayer.ps1:1087`; Raphire/Win11Debloat registry-backup pattern.
-  Touches: `TelemetrySlayer.ps1`
-  Acceptance: Apply captures prior registry value/type/absence, service startup/status, task enabled state/path, firewall rule inventory, IFEO value, and autologger value to a timestamped restore object; Undo restores that object exactly.
-  Complexity: L
-
-- [ ] P0 - Replace service cmdlets with timeout-safe service control
-  Why: `Stop-Service`/`Set-Service` can block in unattended GUI automation and violate the repo's PowerShell stack rule.
-  Evidence: `TelemetrySlayer.ps1:728`, `TelemetrySlayer.ps1:730`, `TelemetrySlayer.ps1:1091`; `stack-powershell.md`; ChrisTitusTech/winutil issue 4376.
-  Touches: `TelemetrySlayer.ps1`
-  Acceptance: All service stop/start/startup changes run through a helper using `sc.exe` or equivalent with timeout, captured exit code, retry/backoff, and visible log failure.
-  Complexity: M
-
 - [ ] P0 - Add preflight backup and recovery gate
   Why: The tool changes machine-wide policy, services, tasks, firewall, IFEO, and ETL state without restore point, registry export, or crash-resumable recovery file.
   Evidence: `TelemetrySlayer.ps1:687`, `TelemetrySlayer.ps1:1060`; Sophia Script `CreateRestorePoint`; Raphire/Win11Debloat issues 675 and 384.
@@ -141,13 +127,6 @@ Forward-looking plans for TelemetrySlayer — a single-file PowerShell WPF tool 
   Touches: `TelemetrySlayer.ps1`, `tests/TelemetrySlayer.Tests.ps1`
   Acceptance: Pester tests mock registry/service/task/firewall/gpupdate calls and verify each checkbox emits the expected Test/Apply/Verify/Undo operations without touching the host OS.
   Complexity: L
-
-- [ ] P1 - Add exact scheduled-task path inventory
-  Why: Task lookup by name alone can miss duplicate-path semantics and makes undo less reliable for vendor and Windows task variants.
-  Evidence: `TelemetrySlayer.ps1:736`, `TelemetrySlayer.ps1:1097`, Nvidia GUID task handling in `TelemetrySlayer.ps1:941`.
-  Touches: `TelemetrySlayer.ps1`
-  Acceptance: Every task action stores and uses exact `TaskPath` plus `TaskName`; scan/apply/undo all agree on the same canonical task IDs.
-  Complexity: M
 
 - [ ] P1 - Add SKU-aware telemetry policy gating
   Why: `AllowTelemetry=0` and related policy semantics differ by Windows edition, and users need to see when a setting is unavailable or downgraded to required diagnostic data.
@@ -176,13 +155,6 @@ Forward-looking plans for TelemetrySlayer — a single-file PowerShell WPF tool 
   Touches: `TelemetrySlayer.ps1`, `README.md`
   Acceptance: `TelemetrySlayer.ps1 -Silent -Preset Balanced|Minimal|Paranoid -Config <json> -WhatIf -LogPath <path>` runs without WPF, returns non-zero on failed required actions, and uses the same action catalog as the GUI.
   Complexity: L
-
-- [ ] P2 - Repair version and release documentation drift
-  Why: Trust-sensitive system tools need exact version traceability, and current docs disagree.
-  Evidence: `README.md:5`, `TelemetrySlayer.ps1:2`, `CLAUDE.md:4`, `CHANGELOG.md:5`.
-  Touches: `README.md`, `CHANGELOG.md`, `CLAUDE.md`, `TelemetrySlayer.ps1`
-  Acceptance: All visible version strings and badges match, changelog date is valid ISO date, and release notes identify the current feature set.
-  Complexity: S
 
 - [ ] P2 - Add accessibility and high-contrast pass for the WPF GUI
   Why: The dark WPF UI has many small checkbox rows and color-only ON/OFF/N/A status cues.

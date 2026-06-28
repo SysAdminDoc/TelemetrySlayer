@@ -1,8 +1,8 @@
-<p align="center"><img src="icon.svg" width="128" height="128" alt="TelemetrySlayer"></p>
+<p align="center"><img src="icon.png" width="128" height="128" alt="TelemetrySlayer"></p>
 
 # TelemetrySlayer
 
-![Version](https://img.shields.io/badge/version-1.0.1-blue)
+![Version](https://img.shields.io/badge/version-1.2.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1+-5391FE?logo=powershell&logoColor=white)
@@ -85,6 +85,13 @@ The script auto-elevates to Administrator. No dependencies, no modules, no insta
 | IFEO Debugger on CompatTelRunner.exe | Image File Execution Options trick — instantly kills CompatTelRunner.exe whenever Windows launches it, surviving updates and re-enablement | On |
 | Clear DiagTrack ETL Logs | Empties `AutoLogger-Diagtrack-Listener.etl` and disables the autologger session | On |
 
+### Restore and Safety
+
+| Feature | Description | Default |
+|---------|-------------|---------|
+| Exact Undo Snapshot | Apply records prior registry value/type/absence, service startup/status, exact scheduled-task IDs, firewall rule baselines, IFEO, and autologger state under `%ProgramData%\TelemetrySlayer\State` | On |
+| Timeout-Safe Service Control | Service stop/start/startup changes run through `sc.exe` with timeout, retry/backoff, exit-code logging, and visible failure output | On |
+
 ### Office Telemetry
 
 | Feature | Description | Default |
@@ -111,7 +118,7 @@ The script auto-elevates to Administrator. No dependencies, no modules, no insta
 ```
 
 1. **UI thread** captures all checkbox states into a hashtable
-2. **Worker runspace** executes all operations (service stops, task disabling, registry writes, firewall rules) in a separate thread to keep the GUI responsive
+2. **Worker runspace** writes an exact restore snapshot, then executes operations (timeout-safe service control, task disabling, registry writes, firewall rules) in a separate thread to keep the GUI responsive
 3. **ConcurrentQueue** bridges the worker and UI — log messages stream in real-time as each operation completes
 4. **DispatcherTimer** drains the queue every 100ms and appends to the embedded console
 5. **gpupdate /force** runs at the end to apply Group Policy changes immediately
@@ -143,6 +150,7 @@ Combined with outbound firewall rules, this provides defense-in-depth: even if s
 - Prevent CompatTelRunner.exe from launching via IFEO
 - Clear existing telemetry log data
 - Disable Office telemetry and feedback
+- Restore prior registry values, service startup/status, scheduled-task enabled state, firewall baselines, IFEO, and autologger settings from the latest apply snapshot
 - Apply changes via Group Policy update
 - Provide granular per-item control with sane defaults
 
@@ -198,7 +206,7 @@ The Diagnostic Policy Service provides some legitimate auto-troubleshooting for 
 SmartScreen provides real security value by checking downloaded files against known malware databases. The telemetry task associated with it is minor compared to the protection it offers.
 
 **Q: Can I undo changes?**
-Services can be re-enabled via `services.msc`, tasks via Task Scheduler, registry values can be deleted or restored, and firewall rules are grouped under `TelemetrySlayer` for easy removal.
+Yes. Apply writes a timestamped restore snapshot under `%ProgramData%\TelemetrySlayer\State`, and **Undo All** restores the prior registry values/types/absence, service startup/status, exact scheduled-task state, firewall rule baseline, IFEO value, and autologger setting from that snapshot.
 
 ---
 
