@@ -138,7 +138,7 @@ The script auto-elevates to Administrator. No dependencies, no modules, no insta
 
 | Feature | Description | Default |
 |---------|-------------|---------|
-| Disable Visual Studio Telemetry | Disables VS telemetry opt-in and feedback dialog/email/screenshot capture | On |
+| Disable Visual Studio Telemetry | Disables VS telemetry opt-in, CEIP/SQM, and feedback dialog/email/screenshot capture | On |
 | Disable VS Collector and PerfWatson | Stops VSStandardCollectorService150 and kills PerfWatson2 | On |
 
 ---

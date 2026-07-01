@@ -74,7 +74,7 @@ Describe 'TelemetrySlayer action catalog' {
             chkEdgeDiag = @('Registry', 'Registry', 'Registry')
             chkEdgeMetrics = @('Registry', 'Registry', 'Registry', 'Registry', 'Registry', 'Registry')
             chkEdgeWebView = @('Registry', 'Registry', 'Registry')
-            chkVSTelemetry = @('Registry', 'Registry', 'Registry', 'Registry')
+            chkVSTelemetry = @('Registry', 'Registry', 'Registry', 'Registry', 'Registry')
             chkVSSvc = @('Service', 'Process')
         }
 

@@ -289,6 +289,7 @@ function Get-TelemetrySlayerActionCatalog {
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableFeedbackDialog' 1
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableEmailInput' 1
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableScreenshotCapture' 1
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\SQM' 'OptIn' 0
         )
         Get-TelemetrySlayerAction 'chkVSSvc' 'Visual Studio collector service' @(
             Get-TelemetrySlayerServiceOperation 'VSStandardCollectorService150' 'VS Standard Collector Service'
@@ -1513,7 +1514,8 @@ $btnApply.Add_Click({
                 'HKLM:\SOFTWARE\Policies\Microsoft\Edge',
                 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView',
                 'HKCU:\SOFTWARE\Microsoft\VisualStudio\Telemetry',
-                'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback'
+                'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback',
+                'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\SQM'
             ) | Select-Object -Unique
 
             foreach ($path in $registryTargets) {
@@ -2073,6 +2075,7 @@ $btnApply.Add_Click({
             SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableFeedbackDialog' 1
             SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableEmailInput' 1
             SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableScreenshotCapture' 1
+            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\SQM' 'OptIn' 0
         }
 
         if ($opts['chkVSSvc']) {
