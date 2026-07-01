@@ -14,17 +14,34 @@
 
 ---
 
-## Quick Start
+## Quick Start (Verified Download)
+
+### Option 1: Download and Verify
+
+```powershell
+# Download the script
+Invoke-WebRequest -Uri https://github.com/SysAdminDoc/TelemetrySlayer/releases/latest/download/TelemetrySlayer.ps1 -OutFile TelemetrySlayer.ps1
+
+# Verify SHA256 checksum against the value published in the GitHub Release
+(Get-FileHash -Algorithm SHA256 TelemetrySlayer.ps1).Hash
+
+# Run
+powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1
+```
+
+### Option 2: Manual Download
+
+1. Download `TelemetrySlayer.ps1` from the [latest release](https://github.com/SysAdminDoc/TelemetrySlayer/releases/latest)
+2. Compare `(Get-FileHash TelemetrySlayer.ps1).Hash` against the SHA256 in the release notes
+3. Right-click → **Run with PowerShell**, or from terminal: `powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1`
+
+### Option 3: One-Liner (Advanced / Unattended)
+
+> **Trust warning:** `Invoke-Expression` executes arbitrary remote code. Only use this if you trust the source and accept the risk of running unverified scripts. For production or managed environments, use Option 1 or 2.
 
 ```powershell
 irm https://raw.githubusercontent.com/SysAdminDoc/TelemetrySlayer/main/TelemetrySlayer.ps1 | iex
 ```
-
-Or download and run manually:
-
-1. Download `TelemetrySlayer.ps1`
-2. Right-click → **Run with PowerShell**
-3. Or from terminal: `powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1`
 
 The script auto-elevates to Administrator. No dependencies, no modules, no installers — single file, fully turnkey.
 
