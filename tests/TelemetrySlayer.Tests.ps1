@@ -71,8 +71,9 @@ Describe 'TelemetrySlayer action catalog' {
             chkNvidiaSvc = @('Service')
             chkNvidiaTasks = @('Task', 'Task', 'Task', 'Task')
             chkNvidiaReg = @('Registry', 'Registry')
-            chkEdgeDiag = @('Registry', 'Registry')
-            chkEdgeMetrics = @('Registry', 'Registry')
+            chkEdgeDiag = @('Registry', 'Registry', 'Registry')
+            chkEdgeMetrics = @('Registry', 'Registry', 'Registry', 'Registry', 'Registry', 'Registry')
+            chkEdgeWebView = @('Registry', 'Registry', 'Registry')
             chkVSTelemetry = @('Registry', 'Registry', 'Registry', 'Registry')
             chkVSSvc = @('Service', 'Process')
         }

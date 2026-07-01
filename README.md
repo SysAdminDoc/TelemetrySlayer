@@ -118,6 +118,29 @@ The script auto-elevates to Administrator. No dependencies, no modules, no insta
 | Disable Office Telemetry Agent | Disables telemetry logging and upload for Office 15.0 and 16.0 | On |
 | Disable Office Feedback and Surveys | Prevents Office feedback collection, surveys, and connected experiences | On |
 
+### Edge Telemetry
+
+| Feature | Description | Default |
+|---------|-------------|---------|
+| Disable Edge Diagnostic Data and Feedback | Sets `DiagnosticData=0`, `PersonalizationReportingEnabled=0`, and `UserFeedbackAllowed=0` | On |
+| Disable Edge Metrics, Sidebar, and Copilot | Disables `MetricsReportingEnabled`, `SendSiteInfoToImproveServices`, `HubsSidebarEnabled`, `CopilotPageContext`, `CopilotCDPPageContext`, and `DiscoverPageContextEnabled` | On |
+| Disable Edge WebView2 Telemetry | Disables `DiagnosticData`, `MetricsReportingEnabled`, and `PersonalizationReportingEnabled` for the WebView2 runtime | On |
+
+### Nvidia Telemetry
+
+| Feature | Description | Default |
+|---------|-------------|---------|
+| Disable NvTelemetryContainer Service | Stops and disables the Nvidia Telemetry Container service | On |
+| Disable Nvidia Telemetry Tasks | Disables NvTmMon, NvTmRep, and NvProfileUpdater scheduled tasks | On |
+| Disable Nvidia Telemetry Registry | Sets `Optimus_EnableTelemetry=0` and `NvTelemetryContainer Start=4` | On |
+
+### Visual Studio Telemetry
+
+| Feature | Description | Default |
+|---------|-------------|---------|
+| Disable Visual Studio Telemetry | Disables VS telemetry opt-in and feedback dialog/email/screenshot capture | On |
+| Disable VS Collector and PerfWatson | Stops VSStandardCollectorService150 and kills PerfWatson2 | On |
+
 ---
 
 ## How It Works
@@ -169,6 +192,8 @@ Combined with outbound firewall rules, this provides defense-in-depth: even if s
 - Prevent CompatTelRunner.exe from launching via IFEO
 - Clear existing telemetry log data
 - Disable Office telemetry and feedback
+- Disable Edge diagnostic data, feedback, metrics, Copilot sidebar, and WebView2 telemetry
+- Disable Nvidia and Visual Studio telemetry services, tasks, and registry keys
 - Write a preflight recovery bundle with registry exports, restore snapshot copy, manifest, and restore-point attempt status
 - Restore prior registry values, service startup/status, scheduled-task enabled state, firewall baselines, IFEO, and autologger settings from the latest apply snapshot
 - Apply the documented diagnostic data value for the detected Windows SKU and log the reason

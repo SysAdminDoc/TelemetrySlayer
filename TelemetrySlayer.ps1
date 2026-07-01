@@ -269,10 +269,20 @@ function Get-TelemetrySlayerActionCatalog {
         Get-TelemetrySlayerAction 'chkEdgeDiag' 'Edge diagnostic data' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiagnosticData' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'PersonalizationReportingEnabled' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'UserFeedbackAllowed' 0
         )
-        Get-TelemetrySlayerAction 'chkEdgeMetrics' 'Edge metrics' @(
+        Get-TelemetrySlayerAction 'chkEdgeMetrics' 'Edge metrics and sidebar' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'MetricsReportingEnabled' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'SendSiteInfoToImproveServices' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'CopilotPageContext' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'CopilotCDPPageContext' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiscoverPageContextEnabled' 0
+        )
+        Get-TelemetrySlayerAction 'chkEdgeWebView' 'Edge WebView2 telemetry' @(
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'DiagnosticData' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'MetricsReportingEnabled' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'PersonalizationReportingEnabled' 0
         )
         Get-TelemetrySlayerAction 'chkVSTelemetry' 'Visual Studio telemetry' @(
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\VisualStudio\Telemetry' 'TurnOffSwitch' 1
@@ -700,14 +710,20 @@ $xaml = @'
                         <StackPanel Orientation="Horizontal">
                             <TextBlock x:Name="indEdgeDiag" Text="--" Width="26" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,4,0"/>
                             <CheckBox x:Name="chkEdgeDiag" IsChecked="True"
-                                Content="Disable Edge Diagnostic Data collection"
-                                ToolTip="Sets DiagnosticData=0 and PersonalizationReportingEnabled=0 under Edge policies."/>
+                                Content="Disable Edge Diagnostic Data and Feedback"
+                                ToolTip="Sets DiagnosticData=0, PersonalizationReportingEnabled=0, and UserFeedbackAllowed=0 under Edge policies."/>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock x:Name="indEdgeMetrics" Text="--" Width="26" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,4,0"/>
                             <CheckBox x:Name="chkEdgeMetrics" IsChecked="True"
-                                Content="Disable Edge Metrics and Site Info reporting"
-                                ToolTip="Sets MetricsReportingEnabled=0 and SendSiteInfoToImproveServices=0 under Edge policies."/>
+                                Content="Disable Edge Metrics, Sidebar, and Copilot"
+                                ToolTip="Disables MetricsReportingEnabled, SendSiteInfoToImproveServices, HubsSidebarEnabled, and Copilot page context policies."/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="indEdgeWebView" Text="--" Width="26" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                            <CheckBox x:Name="chkEdgeWebView" IsChecked="True"
+                                Content="Disable Edge WebView2 telemetry"
+                                ToolTip="Disables DiagnosticData, MetricsReportingEnabled, and PersonalizationReportingEnabled for the Edge WebView2 runtime."/>
                         </StackPanel>
                     </StackPanel>
                 </GroupBox>
@@ -795,7 +811,7 @@ $allCheckboxNames = @(
     'chkFirewallCompat','chkFirewallCEIP','chkFirewallDiagTrack','chkIFEO','chkClearETL',
     'chkOfficeTelemetry','chkOfficeFeedback',
     'chkNvidiaSvc','chkNvidiaTasks','chkNvidiaReg',
-    'chkEdgeDiag','chkEdgeMetrics',
+    'chkEdgeDiag','chkEdgeMetrics','chkEdgeWebView',
     'chkVSTelemetry','chkVSSvc'
 )
 $allCheckboxes = $allCheckboxNames | ForEach-Object { $window.FindName($_) }
@@ -811,7 +827,7 @@ $allIndicatorNames = @(
     'indFirewallCompat','indFirewallCEIP','indFirewallDiagTrack','indIFEO','indClearETL',
     'indOfficeTelemetry','indOfficeFeedback',
     'indNvidiaSvc','indNvidiaTasks','indNvidiaReg',
-    'indEdgeDiag','indEdgeMetrics',
+    'indEdgeDiag','indEdgeMetrics','indEdgeWebView',
     'indVSTelemetry','indVSSvc'
 )
 $allIndicators = @{}
@@ -1002,6 +1018,7 @@ function RunScan {
         # Edge
         CheckReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiagnosticData' 0 'indEdgeDiag'
         CheckReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'MetricsReportingEnabled' 0 'indEdgeMetrics'
+        CheckReg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'DiagnosticData' 0 'indEdgeWebView'
 
         # Visual Studio
         CheckReg 'HKCU:\SOFTWARE\Microsoft\VisualStudio\Telemetry' 'TurnOffSwitch' 1 'indVSTelemetry'
@@ -1372,6 +1389,7 @@ $btnApply.Add_Click({
                 'HKLM:\SYSTEM\CurrentControlSet\Services\NvTelemetryContainer',
                 'HKLM:\SYSTEM\CurrentControlSet\Services\VSStandardCollectorService150',
                 'HKLM:\SOFTWARE\Policies\Microsoft\Edge',
+                'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView',
                 'HKCU:\SOFTWARE\Microsoft\VisualStudio\Telemetry',
                 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback'
             ) | Select-Object -Unique
@@ -1878,11 +1896,22 @@ $btnApply.Add_Click({
         if ($opts['chkEdgeDiag']) {
             SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiagnosticData' 0
             SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'PersonalizationReportingEnabled' 0
+            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'UserFeedbackAllowed' 0
         }
 
         if ($opts['chkEdgeMetrics']) {
             SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'MetricsReportingEnabled' 0
             SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'SendSiteInfoToImproveServices' 0
+            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' 0
+            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'CopilotPageContext' 0
+            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'CopilotCDPPageContext' 0
+            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiscoverPageContextEnabled' 0
+        }
+
+        if ($opts['chkEdgeWebView']) {
+            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'DiagnosticData' 0
+            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'MetricsReportingEnabled' 0
+            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'PersonalizationReportingEnabled' 0
         }
 
         # ========================
