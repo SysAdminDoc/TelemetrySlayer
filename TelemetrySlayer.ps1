@@ -883,12 +883,21 @@ function UpdateSelectedCount {
     if ($script:appliedCount -ge 0) {
         $appliedText = " | $($script:appliedCount) of $total already applied"
     }
-    $txtStatus.Text = "$selected of $total selected$appliedText"
-    $txtStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#8b949e')
+    $managedText = ''
+    if ($script:managedWarning) {
+        $managedText = " | Managed: $($script:managedWarning)"
+    }
+    $txtStatus.Text = "$selected of $total selected$appliedText$managedText"
+    if ($script:managedWarning) {
+        $txtStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#d29922')
+    } else {
+        $txtStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#8b949e')
+    }
 }
 
 # Track applied count from scan
 $script:appliedCount = -1
+$script:managedWarning = $null
 
 # Hook checkbox changes to update count
 foreach ($cb in $allCheckboxes) {
@@ -995,6 +1004,26 @@ function RunScan {
 
         $telemetryProfile = GetTelemetrySkuProfile
         $scanQueue.Enqueue('SKU=' + ($telemetryProfile | ConvertTo-Json -Compress))
+
+        $managedInfo = [ordered]@{ IsDomainJoined = $false; IsMdmEnrolled = $false; DomainName = $null }
+        try {
+            $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
+            if ($cs.PartOfDomain) {
+                $managedInfo.IsDomainJoined = $true
+                $managedInfo.DomainName = $cs.Domain
+            }
+        } catch { }
+        try {
+            $mdmPath = 'HKLM:\SOFTWARE\Microsoft\Enrollments'
+            if (Test-Path -LiteralPath $mdmPath) {
+                $enrollments = @(Get-ChildItem -LiteralPath $mdmPath -ErrorAction SilentlyContinue | Where-Object {
+                    $props = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue
+                    $props -and $props.ProviderID
+                })
+                if ($enrollments.Count -gt 0) { $managedInfo.IsMdmEnrolled = $true }
+            }
+        } catch { }
+        $scanQueue.Enqueue('MANAGED=' + ($managedInfo | ConvertTo-Json -Compress))
 
         # Services
         CheckSvc 'DiagTrack' 'indDiagTrack'
@@ -1103,6 +1132,23 @@ function RunScan {
                         $chkAllowTelemetry.ToolTip = "Windows SKU detection failed: $($_.Exception.Message)"
                     }
                 }
+                continue
+            }
+
+            if ($msg -like 'MANAGED=*') {
+                try {
+                    $managed = $msg.Substring(8) | ConvertFrom-Json
+                    $warnings = @()
+                    if ($managed.IsDomainJoined) { $warnings += "Domain: $($managed.DomainName)" }
+                    if ($managed.IsMdmEnrolled) { $warnings += 'MDM enrolled' }
+                    if ($warnings.Count -gt 0) {
+                        $script:managedWarning = $warnings -join ' | '
+                        $txtStatus.Text = "Managed environment detected: $($script:managedWarning) - GPO/MDM may override local settings"
+                        $txtStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#d29922')
+                    } else {
+                        $script:managedWarning = $null
+                    }
+                } catch { }
                 continue
             }
 
@@ -1724,6 +1770,30 @@ $btnApply.Add_Click({
         # ========================
         #  SERVICES
         # ========================
+        $isDomainJoined = $false
+        $isMdmEnrolled = $false
+        try {
+            $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
+            if ($cs.PartOfDomain) {
+                $isDomainJoined = $true
+                Log "WARNING: This machine is joined to domain '$($cs.Domain)'. Domain GPO may override local registry policy changes."
+            }
+        } catch { }
+        try {
+            $mdmPath = 'HKLM:\SOFTWARE\Microsoft\Enrollments'
+            if (Test-Path -LiteralPath $mdmPath) {
+                $enrollments = @(Get-ChildItem -LiteralPath $mdmPath -ErrorAction SilentlyContinue | Where-Object {
+                    $props = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue
+                    $props -and $props.ProviderID
+                })
+                if ($enrollments.Count -gt 0) {
+                    $isMdmEnrolled = $true
+                    Log "WARNING: This machine is MDM-enrolled. MDM policies may override local registry changes."
+                }
+            }
+        } catch { }
+        Log ""
+
         Log "=== SERVICES ==="
         if ($opts['chkDiagTrack'])   { DisableSvc 'DiagTrack' 'Connected User Experiences and Telemetry' }
         if ($opts['chkDmwAppPush'])  { DisableSvc 'dmwappushservice' 'WAP Push Message Routing' }
