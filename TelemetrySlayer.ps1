@@ -104,13 +104,20 @@ function Get-TelemetrySlayerAction {
     param(
         [Parameter(Mandatory = $true)][string]$CheckBox,
         [Parameter(Mandatory = $true)][string]$Name,
-        [Parameter(Mandatory = $true)][object[]]$Operations
+        [Parameter(Mandatory = $true)][object[]]$Operations,
+        [ValidateSet('Low','Medium','High','Critical')]
+        [string]$Risk = 'Low',
+        [string]$Source,
+        [string]$SupportedOS = 'Windows 10/11'
     )
 
     [pscustomobject]@{
         CheckBox = $CheckBox
         Name = $Name
         Operations = @($Operations)
+        Risk = $Risk
+        Source = $Source
+        SupportedOS = $SupportedOS
     }
 }
 
@@ -124,86 +131,86 @@ function Get-TelemetrySlayerActionCatalog {
     @(
         Get-TelemetrySlayerAction 'chkDiagTrack' 'Connected User Experiences and Telemetry' @(
             Get-TelemetrySlayerServiceOperation 'DiagTrack' 'Connected User Experiences and Telemetry'
-        )
+        ) -Risk 'Low' -Source 'Microsoft DiagTrack service documentation'
         Get-TelemetrySlayerAction 'chkDmwAppPush' 'WAP Push Message Routing' @(
             Get-TelemetrySlayerServiceOperation 'dmwappushservice' 'WAP Push Message Routing'
-        )
+        ) -Risk 'Low' -Source 'Microsoft dmwappushservice documentation'
         Get-TelemetrySlayerAction 'chkWerSvc' 'Windows Error Reporting' @(
             Get-TelemetrySlayerServiceOperation 'WerSvc' 'Windows Error Reporting'
-        )
+        ) -Risk 'Low' -Source 'Microsoft WER documentation'
         Get-TelemetrySlayerAction 'chkPcaSvc' 'Program Compatibility Assistant' @(
             Get-TelemetrySlayerServiceOperation 'PcaSvc' 'Program Compatibility Assistant'
-        )
+        ) -Risk 'Low' -Source 'Microsoft PCA documentation'
         Get-TelemetrySlayerAction 'chkDiagSvc' 'Diagnostic Service Host' @(
             Get-TelemetrySlayerServiceOperation 'diagsvc' 'Diagnostic Service Host'
-        )
+        ) -Risk 'Low' -Source 'Microsoft diagsvc documentation'
         Get-TelemetrySlayerAction 'chkDPS' 'Diagnostic Policy Service' @(
             Get-TelemetrySlayerServiceOperation 'DPS' 'Diagnostic Policy Service'
-        )
+        ) -Risk 'Medium' -Source 'Microsoft DPS documentation'
         Get-TelemetrySlayerAction 'chkCompatAppraiser' 'Microsoft Compatibility Appraiser' @(
             Get-TelemetrySlayerTaskOperation 'Microsoft Compatibility Appraiser' $appExpPath
-        )
+        ) -Risk 'Low' -Source 'Application Experience telemetry task'
         Get-TelemetrySlayerAction 'chkProgramDataUpdater' 'ProgramDataUpdater' @(
             Get-TelemetrySlayerTaskOperation 'ProgramDataUpdater' $appExpPath
-        )
+        ) -Risk 'Low' -Source 'CEIP program telemetry collector'
         Get-TelemetrySlayerAction 'chkStartupAppTask' 'StartupAppTask' @(
             Get-TelemetrySlayerTaskOperation 'StartupAppTask' $appExpPath
-        )
+        ) -Risk 'Low' -Source 'Startup telemetry scanning task'
         Get-TelemetrySlayerAction 'chkProxy' 'Autochk Proxy' @(
             Get-TelemetrySlayerTaskOperation 'Proxy' '\Microsoft\Windows\Autochk\'
-        )
+        ) -Risk 'Low' -Source 'SQM data collection proxy'
         Get-TelemetrySlayerAction 'chkConsolidator' 'CEIP Consolidator' @(
             Get-TelemetrySlayerTaskOperation 'Consolidator' $ceipPath
-        )
+        ) -Risk 'Low' -Source 'CEIP data consolidator'
         Get-TelemetrySlayerAction 'chkUsbCeip' 'USB CEIP' @(
             Get-TelemetrySlayerTaskOperation 'UsbCeip' $ceipPath
-        )
+        ) -Risk 'Low' -Source 'USB statistics CEIP collector'
         Get-TelemetrySlayerAction 'chkKernelCeip' 'Kernel CEIP' @(
             Get-TelemetrySlayerTaskOperation 'KernelCeipTask' $ceipPath
-        )
+        ) -Risk 'Low' -Source 'Kernel-level CEIP data collector'
         Get-TelemetrySlayerAction 'chkDiskDiag' 'Disk Diagnostic Data Collector' @(
             Get-TelemetrySlayerTaskOperation 'Microsoft-Windows-DiskDiagnosticDataCollector' '\Microsoft\Windows\DiskDiagnostic\'
-        )
+        ) -Risk 'Low' -Source 'Disk diagnostic data reporter'
         Get-TelemetrySlayerAction 'chkSmartScreen' 'SmartScreenSpecific' @(
             Get-TelemetrySlayerTaskOperation 'SmartScreenSpecific' '\Microsoft\Windows\AppID\'
-        )
+        ) -Risk 'Medium' -Source 'SmartScreen telemetry task'
         Get-TelemetrySlayerAction 'chkPcaPatchDb' 'PcaPatchDbTask' @(
             Get-TelemetrySlayerTaskOperation 'PcaPatchDbTask' $appExpPath
-        )
+        ) -Risk 'Low' -Source 'Compatibility database updater'
         Get-TelemetrySlayerAction 'chkAllowTelemetry' 'AllowTelemetry policies' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' 'SkuGated0Or1'
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'MaxTelemetryAllowed' 'SkuGated0Or1'
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection' 'AllowTelemetry' 'SkuGated0Or1'
-        )
+        ) -Risk 'Low' -Source 'Microsoft Policy CSP - System/AllowTelemetry'
         Get-TelemetrySlayerAction 'chkAdvertisingID' 'Advertising ID' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo' 'Enabled' 0
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo' 'Enabled' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo' 'DisabledByGroupPolicy' 1
-        )
+        ) -Risk 'Low' -Source 'Microsoft Privacy - Advertising ID policy'
         Get-TelemetrySlayerAction 'chkLinguistic' 'Linguistic data collection' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\TextInput' 'AllowLinguisticDataCollection' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\InputPersonalization' 'AllowInputPersonalization' 0
-        )
+        ) -Risk 'Low' -Source 'Microsoft TextInput/InputPersonalization policy'
         Get-TelemetrySlayerAction 'chkTailoredExp' 'Tailored experiences' @(
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableTailoredExperiencesWithDiagnosticData' 1
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsConsumerFeatures' 1
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Privacy' 'TailoredExperiencesWithDiagnosticDataEnabled' 0
-        )
+        ) -Risk 'Low' -Source 'Microsoft CloudContent policy'
         Get-TelemetrySlayerAction 'chkFeedback' 'Feedback notifications' @(
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\Siuf\Rules' 'NumberOfSIUFInPeriod' 0
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\Siuf\Rules' 'PeriodInNanoSeconds' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'DoNotShowFeedbackNotifications' 1
-        )
+        ) -Risk 'Low' -Source 'Microsoft SIUF/DataCollection feedback policy'
         Get-TelemetrySlayerAction 'chkActivityFeed' 'Activity history' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'EnableActivityFeed' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'PublishUserActivities' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'UploadUserActivities' 0
-        )
+        ) -Risk 'Low' -Source 'Microsoft Policy CSP - System/ActivityFeed'
         Get-TelemetrySlayerAction 'chkLocationTracking' 'Location tracking' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableLocation' 1
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableWindowsLocationProvider' 1
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableLocationScripting' 1
-        )
+        ) -Risk 'Medium' -Source 'Microsoft LocationAndSensors policy'
         Get-TelemetrySlayerAction 'chkInputPersonalization' 'Input personalization' @(
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\InputPersonalization' 'RestrictImplicitInkCollection' 1
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\InputPersonalization' 'RestrictImplicitTextCollection' 1
@@ -211,39 +218,39 @@ function Get-TelemetrySlayerActionCatalog {
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\TabletPC' 'PreventHandwritingDataSharing' 1
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\Personalization\Settings' 'AcceptedPrivacyPolicy' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Speech_OneCore\Preferences' 'ModelDownloadAllowed' 0
-        )
+        ) -Risk 'Low' -Source 'Microsoft InputPersonalization/Speech policy'
         Get-TelemetrySlayerAction 'chkHandwritingTelemetry' 'Handwriting telemetry' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\HandwritingErrorReports' 'PreventHandwritingErrorReports' 1
-        )
+        ) -Risk 'Low' -Source 'Microsoft HandwritingErrorReports policy'
         Get-TelemetrySlayerAction 'chkInventoryCollector' 'Application inventory collector' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'DisableInventory' 1
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'AITEnable' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'DisableUAR' 1
-        )
+        ) -Risk 'Low' -Source 'Microsoft AppCompat inventory policy'
         Get-TelemetrySlayerAction 'chkStepsRecorder' 'Steps Recorder' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'DisablePCA' 1
-        )
+        ) -Risk 'Low' -Source 'Microsoft AppCompat PCA policy'
         Get-TelemetrySlayerAction 'chkWiFiSense' 'Wi-Fi Sense' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\WcmSvc\wifinetworkmanager\config' 'AutoConnectAllowedOEM' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\PolicyManager\default\WiFi\AllowAutoConnectToWiFiSenseHotspots' 'value' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\PolicyManager\default\WiFi\AllowWiFiHotSpotReporting' 'value' 0
-        )
+        ) -Risk 'Low' -Source 'Microsoft WiFi Sense policy' -SupportedOS 'Windows 10'
         Get-TelemetrySlayerAction 'chkFirewallCompat' 'CompatTelRunner firewall block' @(
             Get-TelemetrySlayerFirewallOperation 'TelemetrySlayer - Block CompatTelRunner' "$systemRoot\System32\CompatTelRunner.exe" $null
-        )
+        ) -Risk 'Low' -Source 'Defense-in-depth outbound block'
         Get-TelemetrySlayerAction 'chkFirewallCEIP' 'CEIP firewall block' @(
             Get-TelemetrySlayerFirewallOperation 'TelemetrySlayer - Block CEIP wsqmcons' "$systemRoot\System32\wsqmcons.exe" $null
-        )
+        ) -Risk 'Low' -Source 'Defense-in-depth outbound block'
         Get-TelemetrySlayerAction 'chkFirewallDiagTrack' 'DiagTrack firewall block' @(
             Get-TelemetrySlayerFirewallOperation 'TelemetrySlayer - Block DiagTrack svchost' "$systemRoot\System32\svchost.exe" 'DiagTrack'
-        )
+        ) -Risk 'Low' -Source 'Defense-in-depth outbound block'
         Get-TelemetrySlayerAction 'chkIFEO' 'CompatTelRunner IFEO debugger' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\CompatTelRunner.exe' 'Debugger' "$systemRoot\System32\taskkill.exe" 'String'
-        )
+        ) -Risk 'Low' -Source 'IFEO persistence trick for CompatTelRunner'
         Get-TelemetrySlayerAction 'chkClearETL' 'Clear DiagTrack ETL' @(
             Get-TelemetrySlayerFileOperation "$programData\Microsoft\Diagnosis\ETLLogs\AutoLogger\AutoLogger-Diagtrack-Listener.etl" 'ClearFile'
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SYSTEM\CurrentControlSet\Control\WMI\Autologger\AutoLogger-Diagtrack-Listener' 'Start' 0
-        )
+        ) -Risk 'Low' -Source 'AutoLogger-Diagtrack-Listener session'
         Get-TelemetrySlayerAction 'chkOfficeTelemetry' 'Office telemetry' @(
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\15.0\osm' 'Enablelogging' 0
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\15.0\osm' 'EnableUpload' 0
@@ -251,32 +258,32 @@ function Get-TelemetrySlayerActionCatalog {
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\osm' 'EnableUpload' 0
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\Common\ClientTelemetry' 'DisableTelemetry' 1
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\Common\ClientTelemetry' 'SendTelemetry' 3
-        )
+        ) -Risk 'Low' -Source 'Microsoft Office telemetry agent policy'
         Get-TelemetrySlayerAction 'chkOfficeFeedback' 'Office feedback' @(
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Feedback' 'Enabled' 0
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Feedback' 'SurveyEnabled' 0
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common' 'sendcustomerdata' 0
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Privacy' 'DisconnectedState' 2
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Privacy' 'ControllerConnectedServicesEnabled' 2
-        )
+        ) -Risk 'Low' -Source 'Microsoft Office feedback/connected services policy'
         Get-TelemetrySlayerAction 'chkNvidiaSvc' 'Nvidia telemetry service' @(
             Get-TelemetrySlayerServiceOperation 'NvTelemetryContainer' 'Nvidia Telemetry Container'
-        )
+        ) -Risk 'Low' -Source 'Nvidia NvTelemetryContainer service'
         Get-TelemetrySlayerAction 'chkNvidiaTasks' 'Nvidia telemetry tasks' @(
             Get-TelemetrySlayerTaskOperation 'NvTmMon_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}' $nvidiaTaskPath
             Get-TelemetrySlayerTaskOperation 'NvTmRep_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}' $nvidiaTaskPath
             Get-TelemetrySlayerTaskOperation 'NvProfileUpdaterDaily_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}' $nvidiaTaskPath
             Get-TelemetrySlayerTaskOperation 'NvProfileUpdaterOnLogon_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}' $nvidiaTaskPath
-        )
+        ) -Risk 'Low' -Source 'Nvidia telemetry scheduled tasks'
         Get-TelemetrySlayerAction 'chkNvidiaReg' 'Nvidia telemetry registry' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client' 'Optimus_EnableTelemetry' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SYSTEM\CurrentControlSet\Services\NvTelemetryContainer' 'Start' 4
-        )
+        ) -Risk 'Low' -Source 'Nvidia telemetry registry keys'
         Get-TelemetrySlayerAction 'chkEdgeDiag' 'Edge diagnostic data' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiagnosticData' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'PersonalizationReportingEnabled' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'UserFeedbackAllowed' 0
-        )
+        ) -Risk 'Low' -Source 'Microsoft Edge browser policy'
         Get-TelemetrySlayerAction 'chkEdgeMetrics' 'Edge metrics and sidebar' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'MetricsReportingEnabled' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'SendSiteInfoToImproveServices' 0
@@ -284,23 +291,23 @@ function Get-TelemetrySlayerActionCatalog {
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'CopilotPageContext' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'CopilotCDPPageContext' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiscoverPageContextEnabled' 0
-        )
+        ) -Risk 'Low' -Source 'Microsoft Edge metrics/sidebar/Copilot policy'
         Get-TelemetrySlayerAction 'chkEdgeWebView' 'Edge WebView2 telemetry' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'DiagnosticData' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'MetricsReportingEnabled' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'PersonalizationReportingEnabled' 0
-        )
+        ) -Risk 'Low' -Source 'Microsoft Edge WebView2 runtime policy'
         Get-TelemetrySlayerAction 'chkVSTelemetry' 'Visual Studio telemetry' @(
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\VisualStudio\Telemetry' 'TurnOffSwitch' 1
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableFeedbackDialog' 1
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableEmailInput' 1
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableScreenshotCapture' 1
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\SQM' 'OptIn' 0
-        )
+        ) -Risk 'Low' -Source 'Microsoft Visual Studio telemetry/CEIP policy'
         Get-TelemetrySlayerAction 'chkVSSvc' 'Visual Studio collector service' @(
             Get-TelemetrySlayerServiceOperation 'VSStandardCollectorService150' 'VS Standard Collector Service'
             Get-TelemetrySlayerProcessOperation 'PerfWatson2' 'Stop'
-        )
+        ) -Risk 'Low' -Source 'VS Standard Collector and PerfWatson2'
     )
 }
 

@@ -118,6 +118,15 @@ Describe 'TelemetrySlayer action catalog' {
         @($script:Calls.Phase | Sort-Object -Unique) | Should -Be @('Apply', 'Test', 'Undo', 'Verify')
     }
 
+    It 'has risk level and source metadata for every action' {
+        foreach ($action in $script:Catalog) {
+            $action.Risk | Should -Not -BeNullOrEmpty -Because "$($action.CheckBox) needs a risk level"
+            $action.Risk | Should -BeIn @('Low', 'Medium', 'High', 'Critical') -Because "$($action.CheckBox) risk must be valid"
+            $action.Source | Should -Not -BeNullOrEmpty -Because "$($action.CheckBox) needs a source reference"
+            $action.SupportedOS | Should -Not -BeNullOrEmpty -Because "$($action.CheckBox) needs supported OS info"
+        }
+    }
+
     It 'exposes preset profiles covering every catalog checkbox' {
         foreach ($presetName in @('Balanced', 'Minimal', 'Paranoid')) {
             $preset = Get-TelemetrySlayerPreset $presetName
