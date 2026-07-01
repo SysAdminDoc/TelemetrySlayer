@@ -33,6 +33,15 @@ Describe 'TelemetrySlayer static safety checks' {
         $script:ScriptText | Should -Match 'Get-ScheduledTask -TaskName \$TaskName -TaskPath \$TaskPath'
     }
 
+    It 'supports silent mode with presets and WhatIf' {
+        $script:ScriptText | Should -Match '\[switch\]\$Silent'
+        $script:ScriptText | Should -Match "ValidateSet\('Balanced','Minimal','Paranoid'\)"
+        $script:ScriptText | Should -Match '\[switch\]\$WhatIf'
+        $script:ScriptText | Should -Match 'function Get-TelemetrySlayerPreset'
+        $script:ScriptText | Should -Match 'function SilentLog'
+        $script:ScriptText | Should -Match 'if \(\$Silent\)'
+    }
+
     It 'writes durable transcript log files' {
         $script:ScriptText | Should -Match 'function Start-LogFile'
         $script:ScriptText | Should -Match 'function Write-LogLine'

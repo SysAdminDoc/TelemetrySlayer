@@ -213,7 +213,29 @@ Combined with outbound firewall rules, this provides defense-in-depth: even if s
 
 ### Silent Mode
 
-For headless/automated deployment, the script can be adapted for RMM pipelines by extracting the core logic into a non-GUI wrapper. The GUI version is designed for interactive use.
+Run without the GUI for automated/RMM deployment:
+
+```powershell
+# Apply Balanced preset (default)
+powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1 -Silent
+
+# Apply Paranoid preset (enables DPS and SmartScreen task disabling)
+powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1 -Silent -Preset Paranoid
+
+# Apply Minimal preset (core telemetry only, skips Nvidia/VS/firewall)
+powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1 -Silent -Preset Minimal
+
+# Dry run (shows what would change without modifying the system)
+powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1 -Silent -WhatIf
+
+# Custom config file (JSON overrides for individual toggles)
+powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1 -Silent -ConfigPath config.json
+
+# Custom log path
+powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1 -Silent -LogPath C:\Logs\telemetry.log
+```
+
+Exit codes: `0` = success, `1` = one or more actions failed. Logs are written to `%ProgramData%\TelemetrySlayer\Logs\` by default.
 
 ### NinjaOne
 

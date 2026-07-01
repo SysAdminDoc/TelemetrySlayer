@@ -118,6 +118,15 @@ Describe 'TelemetrySlayer action catalog' {
         @($script:Calls.Phase | Sort-Object -Unique) | Should -Be @('Apply', 'Test', 'Undo', 'Verify')
     }
 
+    It 'exposes preset profiles covering every catalog checkbox' {
+        foreach ($presetName in @('Balanced', 'Minimal', 'Paranoid')) {
+            $preset = Get-TelemetrySlayerPreset $presetName
+            foreach ($action in $script:Catalog) {
+                $preset.ContainsKey($action.CheckBox) | Should -Be $true -Because "$presetName preset should contain $($action.CheckBox)"
+            }
+        }
+    }
+
     It 'dispatches gpupdate finalization through mocks for apply and undo' {
         $script:GpupdateCalls = @()
         Mock Invoke-TelemetrySlayerGpupdateOperation { param($Operation, $Phase) $script:GpupdateCalls += [pscustomobject]@{ Phase = $Phase; Target = $Operation.Target } }

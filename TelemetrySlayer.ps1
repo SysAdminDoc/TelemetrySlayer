@@ -3,7 +3,13 @@
 # Disables Microsoft telemetry, data collection, and related bloat on Windows 10/11
 
 param(
-    [switch]$ActionCatalogOnly
+    [switch]$ActionCatalogOnly,
+    [switch]$Silent,
+    [ValidateSet('Balanced','Minimal','Paranoid')]
+    [string]$Preset = 'Balanced',
+    [string]$ConfigPath,
+    [switch]$WhatIf,
+    [string]$LogPath
 )
 
 function Get-TelemetrySlayerOperation {
@@ -351,8 +357,325 @@ function Invoke-TelemetrySlayerFinalizePhase {
     Invoke-TelemetrySlayerOperation -Operation (Get-TelemetrySlayerFinalizeOperation) -Phase $Phase
 }
 
+function Get-TelemetrySlayerPreset {
+    param([string]$Name)
+    $balanced = @{
+        chkDiagTrack = $true; chkDmwAppPush = $true; chkWerSvc = $true; chkPcaSvc = $true
+        chkDiagSvc = $true; chkDPS = $false
+        chkCompatAppraiser = $true; chkProgramDataUpdater = $true; chkStartupAppTask = $true
+        chkProxy = $true; chkConsolidator = $true; chkUsbCeip = $true; chkKernelCeip = $true
+        chkDiskDiag = $true; chkSmartScreen = $false; chkPcaPatchDb = $true
+        chkAllowTelemetry = $true; chkAdvertisingID = $true; chkLinguistic = $true
+        chkTailoredExp = $true; chkFeedback = $true; chkActivityFeed = $true
+        chkLocationTracking = $true; chkInputPersonalization = $true
+        chkHandwritingTelemetry = $true; chkInventoryCollector = $true
+        chkStepsRecorder = $true; chkWiFiSense = $true
+        chkFirewallCompat = $true; chkFirewallCEIP = $true; chkFirewallDiagTrack = $true
+        chkIFEO = $true; chkClearETL = $true
+        chkOfficeTelemetry = $true; chkOfficeFeedback = $true
+        chkNvidiaSvc = $true; chkNvidiaTasks = $true; chkNvidiaReg = $true
+        chkEdgeDiag = $true; chkEdgeMetrics = $true; chkEdgeWebView = $true
+        chkVSTelemetry = $true; chkVSSvc = $true
+    }
+    switch ($Name) {
+        'Minimal' {
+            $minimal = $balanced.Clone()
+            $minimal['chkWerSvc'] = $false
+            $minimal['chkPcaSvc'] = $false
+            $minimal['chkDiagSvc'] = $false
+            $minimal['chkFirewallCompat'] = $false
+            $minimal['chkFirewallCEIP'] = $false
+            $minimal['chkFirewallDiagTrack'] = $false
+            $minimal['chkIFEO'] = $false
+            $minimal['chkNvidiaSvc'] = $false
+            $minimal['chkNvidiaTasks'] = $false
+            $minimal['chkNvidiaReg'] = $false
+            $minimal['chkVSTelemetry'] = $false
+            $minimal['chkVSSvc'] = $false
+            return $minimal
+        }
+        'Paranoid' {
+            $paranoid = $balanced.Clone()
+            $paranoid['chkDPS'] = $true
+            $paranoid['chkSmartScreen'] = $true
+            return $paranoid
+        }
+        default { return $balanced }
+    }
+}
+
 if ($ActionCatalogOnly) {
     return
+}
+
+# --- Silent mode ---
+if ($Silent) {
+    if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        Write-Error 'TelemetrySlayer -Silent requires Administrator privileges.'
+        exit 1
+    }
+
+    $opts = Get-TelemetrySlayerPreset $Preset
+    if ($ConfigPath) {
+        if (-not (Test-Path -LiteralPath $ConfigPath)) {
+            Write-Error "Config file not found: $ConfigPath"
+            exit 1
+        }
+        try {
+            $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+            foreach ($prop in $config.PSObject.Properties) {
+                if ($opts.ContainsKey($prop.Name)) {
+                    $opts[$prop.Name] = [bool]$prop.Value
+                }
+            }
+        } catch {
+            Write-Error "Failed to parse config: $($_.Exception.Message)"
+            exit 1
+        }
+    }
+
+    $silentLogPath = if ($LogPath) { $LogPath } else {
+        $logDir = Join-Path $env:ProgramData 'TelemetrySlayer\Logs'
+        if (-not (Test-Path -LiteralPath $logDir)) { New-Item -Path $logDir -ItemType Directory -Force | Out-Null }
+        Join-Path $logDir "$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+    }
+
+    function SilentLog([string]$msg) {
+        $line = "[$(Get-Date -Format 'HH:mm:ss')] $msg"
+        Write-Output $line
+        try { Add-Content -LiteralPath $silentLogPath -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue } catch { }
+    }
+
+    function GetTelemetrySkuProfile {
+        try {
+            $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+            $cv = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue
+            $productName = if ($cv.ProductName) { $cv.ProductName } else { $os.Caption }
+            $editionId = if ($cv.EditionID) { $cv.EditionID } else { 'Unknown' }
+            $build = if ($cv.CurrentBuildNumber) { $cv.CurrentBuildNumber } else { $os.BuildNumber }
+            $displayVersion = if ($cv.DisplayVersion) { $cv.DisplayVersion } elseif ($cv.ReleaseId) { $cv.ReleaseId } else { 'Unknown' }
+            $isServer = ($os.ProductType -ne 1) -or ($productName -match 'Server') -or ($editionId -match 'Server')
+            $supportsDiagnosticOff = $isServer -or ($editionId -match 'Enterprise|Education') -or ($productName -match 'Enterprise|Education')
+            $targetValue = if ($supportsDiagnosticOff) { 0 } else { 1 }
+            return [pscustomobject]@{
+                AllowTelemetryValue = $targetValue
+                Summary = "$productName $displayVersion build $build edition $editionId"
+                Reason = if ($supportsDiagnosticOff) { 'Diagnostic data off (0)' } else { 'Required diagnostic data (1)' }
+            }
+        } catch {
+            return [pscustomobject]@{ AllowTelemetryValue = 1; Summary = 'Unknown'; Reason = 'SKU detection failed' }
+        }
+    }
+
+    function SetRegSilent([string]$Path, [string]$Name, $Value, [string]$Type = 'DWord') {
+        if ($WhatIf) { SilentLog "  WHATIF SET $Path\$Name = $Value"; return }
+        try {
+            if (-not (Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
+            New-ItemProperty -LiteralPath $Path -Name $Name -Value $Value -PropertyType $Type -Force -ErrorAction Stop | Out-Null
+            SilentLog "  SET $Path\$Name = $Value"
+        } catch { SilentLog "  FAIL $Path\$Name - $($_.Exception.Message)"; $script:silentFailed++ }
+    }
+
+    function DisableSvcSilent([string]$Name, [string]$Display) {
+        if ($WhatIf) { SilentLog "  WHATIF disable service: $Display ($Name)"; return }
+        try {
+            $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+            if ($svc) {
+                $scExe = Join-Path $env:SystemRoot 'System32\sc.exe'
+                if ($svc.Status -eq 'Running') { & $scExe stop $Name 2>$null | Out-Null; Start-Sleep -Seconds 2 }
+                & $scExe config $Name start= disabled 2>$null | Out-Null
+                SilentLog "  Disabled service: $Display ($Name)"
+            } else { SilentLog "  Service not found: $Name (OK)" }
+        } catch { SilentLog "  FAIL service $Name - $($_.Exception.Message)"; $script:silentFailed++ }
+    }
+
+    function DisableTaskSilent([string]$Name, [string]$TaskPath) {
+        if ($WhatIf) { SilentLog "  WHATIF disable task: $TaskPath$Name"; return }
+        try {
+            $task = Get-ScheduledTask -TaskName $Name -TaskPath $TaskPath -ErrorAction SilentlyContinue
+            if ($task) {
+                Disable-ScheduledTask -TaskName $Name -TaskPath $TaskPath -ErrorAction Stop | Out-Null
+                SilentLog "  Disabled task: $TaskPath$Name"
+            } else { SilentLog "  Task not found: $Name (OK)" }
+        } catch { SilentLog "  FAIL task $Name - $($_.Exception.Message)"; $script:silentFailed++ }
+    }
+
+    function AddFWSilent([string]$DisplayName, [string]$Program, [string]$Service) {
+        if ($WhatIf) { SilentLog "  WHATIF firewall rule: $DisplayName"; return }
+        try {
+            $existing = Get-NetFirewallRule -DisplayName $DisplayName -ErrorAction SilentlyContinue
+            if ($existing) { SilentLog "  Firewall rule exists: $DisplayName"; return }
+            $params = @{ DisplayName=$DisplayName; Direction='Outbound'; Action='Block'; Enabled='True'; Group='TelemetrySlayer'; Protocol='TCP'; RemotePort=@(80,443) }
+            if ($Program) { $params['Program'] = $Program }
+            if ($Service) { $params['Service'] = $Service }
+            New-NetFirewallRule @params -ErrorAction Stop | Out-Null
+            SilentLog "  Created firewall rule: $DisplayName"
+        } catch { SilentLog "  FAIL firewall $DisplayName - $($_.Exception.Message)"; $script:silentFailed++ }
+    }
+
+    $script:silentFailed = 0
+    SilentLog "TelemetrySlayer v1.6.0 - Silent mode - Preset: $Preset"
+    if ($WhatIf) { SilentLog "DRY RUN - no changes will be made" }
+    SilentLog "Log: $silentLogPath"
+
+    $telemetryProfile = GetTelemetrySkuProfile
+    SilentLog "SKU: $($telemetryProfile.Summary) - $($telemetryProfile.Reason)"
+
+    $appExpPath = '\Microsoft\Windows\Application Experience\'
+    $ceipPath = '\Microsoft\Windows\Customer Experience Improvement Program\'
+
+    if ($opts['chkDiagTrack']) { DisableSvcSilent 'DiagTrack' 'Connected User Experiences and Telemetry' }
+    if ($opts['chkDmwAppPush']) { DisableSvcSilent 'dmwappushservice' 'WAP Push Message Routing' }
+    if ($opts['chkWerSvc']) { DisableSvcSilent 'WerSvc' 'Windows Error Reporting' }
+    if ($opts['chkPcaSvc']) { DisableSvcSilent 'PcaSvc' 'Program Compatibility Assistant' }
+    if ($opts['chkDiagSvc']) { DisableSvcSilent 'diagsvc' 'Diagnostic Service Host' }
+    if ($opts['chkDPS']) { DisableSvcSilent 'DPS' 'Diagnostic Policy Service' }
+
+    if ($opts['chkCompatAppraiser']) { DisableTaskSilent 'Microsoft Compatibility Appraiser' $appExpPath }
+    if ($opts['chkProgramDataUpdater']) { DisableTaskSilent 'ProgramDataUpdater' $appExpPath }
+    if ($opts['chkStartupAppTask']) { DisableTaskSilent 'StartupAppTask' $appExpPath }
+    if ($opts['chkPcaPatchDb']) { DisableTaskSilent 'PcaPatchDbTask' $appExpPath }
+    if ($opts['chkProxy']) { DisableTaskSilent 'Proxy' '\Microsoft\Windows\Autochk\' }
+    if ($opts['chkConsolidator']) { DisableTaskSilent 'Consolidator' $ceipPath }
+    if ($opts['chkUsbCeip']) { DisableTaskSilent 'UsbCeip' $ceipPath }
+    if ($opts['chkKernelCeip']) { DisableTaskSilent 'KernelCeipTask' $ceipPath }
+    if ($opts['chkDiskDiag']) { DisableTaskSilent 'Microsoft-Windows-DiskDiagnosticDataCollector' '\Microsoft\Windows\DiskDiagnostic\' }
+    if ($opts['chkSmartScreen']) { DisableTaskSilent 'SmartScreenSpecific' '\Microsoft\Windows\AppID\' }
+
+    if ($opts['chkAllowTelemetry']) {
+        $tv = [int]$telemetryProfile.AllowTelemetryValue
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' $tv
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'MaxTelemetryAllowed' $tv
+        SetRegSilent 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection' 'AllowTelemetry' $tv
+    }
+    if ($opts['chkAdvertisingID']) {
+        SetRegSilent 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo' 'Enabled' 0
+        SetRegSilent 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo' 'Enabled' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo' 'DisabledByGroupPolicy' 1
+    }
+    if ($opts['chkLinguistic']) {
+        SetRegSilent 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\TextInput' 'AllowLinguisticDataCollection' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\InputPersonalization' 'AllowInputPersonalization' 0
+    }
+    if ($opts['chkTailoredExp']) {
+        SetRegSilent 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableTailoredExperiencesWithDiagnosticData' 1
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsConsumerFeatures' 1
+        SetRegSilent 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Privacy' 'TailoredExperiencesWithDiagnosticDataEnabled' 0
+    }
+    if ($opts['chkFeedback']) {
+        SetRegSilent 'HKCU:\SOFTWARE\Microsoft\Siuf\Rules' 'NumberOfSIUFInPeriod' 0
+        SetRegSilent 'HKCU:\SOFTWARE\Microsoft\Siuf\Rules' 'PeriodInNanoSeconds' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'DoNotShowFeedbackNotifications' 1
+    }
+    if ($opts['chkActivityFeed']) {
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'EnableActivityFeed' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'PublishUserActivities' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' 'UploadUserActivities' 0
+    }
+    if ($opts['chkLocationTracking']) {
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableLocation' 1
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableWindowsLocationProvider' 1
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableLocationScripting' 1
+    }
+    if ($opts['chkInputPersonalization']) {
+        SetRegSilent 'HKCU:\SOFTWARE\Microsoft\InputPersonalization' 'RestrictImplicitInkCollection' 1
+        SetRegSilent 'HKCU:\SOFTWARE\Microsoft\InputPersonalization' 'RestrictImplicitTextCollection' 1
+        SetRegSilent 'HKCU:\SOFTWARE\Microsoft\InputPersonalization\TrainedDataStore' 'HarvestContacts' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\TabletPC' 'PreventHandwritingDataSharing' 1
+        SetRegSilent 'HKCU:\SOFTWARE\Microsoft\Personalization\Settings' 'AcceptedPrivacyPolicy' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Microsoft\Speech_OneCore\Preferences' 'ModelDownloadAllowed' 0
+    }
+    if ($opts['chkHandwritingTelemetry']) { SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\HandwritingErrorReports' 'PreventHandwritingErrorReports' 1 }
+    if ($opts['chkInventoryCollector']) {
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'DisableInventory' 1
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'AITEnable' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'DisableUAR' 1
+    }
+    if ($opts['chkStepsRecorder']) { SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppCompat' 'DisablePCA' 1 }
+    if ($opts['chkWiFiSense']) {
+        SetRegSilent 'HKLM:\SOFTWARE\Microsoft\WcmSvc\wifinetworkmanager\config' 'AutoConnectAllowedOEM' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Microsoft\PolicyManager\default\WiFi\AllowAutoConnectToWiFiSenseHotspots' 'value' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Microsoft\PolicyManager\default\WiFi\AllowWiFiHotSpotReporting' 'value' 0
+    }
+    if ($opts['chkFirewallCompat']) { AddFWSilent 'TelemetrySlayer - Block CompatTelRunner' "$env:SystemRoot\System32\CompatTelRunner.exe" $null }
+    if ($opts['chkFirewallCEIP']) { AddFWSilent 'TelemetrySlayer - Block CEIP wsqmcons' "$env:SystemRoot\System32\wsqmcons.exe" $null }
+    if ($opts['chkFirewallDiagTrack']) { AddFWSilent 'TelemetrySlayer - Block DiagTrack svchost' "$env:SystemRoot\System32\svchost.exe" 'DiagTrack' }
+    if ($opts['chkIFEO']) { SetRegSilent 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\CompatTelRunner.exe' 'Debugger' "$env:SystemRoot\System32\taskkill.exe" 'String' }
+    if ($opts['chkClearETL']) {
+        $etlPath = "$env:ProgramData\Microsoft\Diagnosis\ETLLogs\AutoLogger\AutoLogger-Diagtrack-Listener.etl"
+        if (-not $WhatIf) {
+            try {
+                if (Test-Path $etlPath) { & logman stop 'AutoLogger-Diagtrack-Listener' -ets 2>$null; [System.IO.File]::WriteAllText($etlPath, ''); SilentLog "  Cleared ETL: $etlPath" }
+            } catch { SilentLog "  FAIL ETL - $($_.Exception.Message)" }
+        } else { SilentLog "  WHATIF clear ETL: $etlPath" }
+        SetRegSilent 'HKLM:\SYSTEM\CurrentControlSet\Control\WMI\Autologger\AutoLogger-Diagtrack-Listener' 'Start' 0
+    }
+    if ($opts['chkOfficeTelemetry']) {
+        foreach ($ver in @('15.0','16.0')) {
+            SetRegSilent "HKCU:\SOFTWARE\Policies\Microsoft\Office\$ver\osm" 'Enablelogging' 0
+            SetRegSilent "HKCU:\SOFTWARE\Policies\Microsoft\Office\$ver\osm" 'EnableUpload' 0
+        }
+        SetRegSilent 'HKCU:\SOFTWARE\Policies\Microsoft\Office\Common\ClientTelemetry' 'DisableTelemetry' 1
+        SetRegSilent 'HKCU:\SOFTWARE\Policies\Microsoft\Office\Common\ClientTelemetry' 'SendTelemetry' 3
+    }
+    if ($opts['chkOfficeFeedback']) {
+        SetRegSilent 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Feedback' 'Enabled' 0
+        SetRegSilent 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Feedback' 'SurveyEnabled' 0
+        SetRegSilent 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common' 'sendcustomerdata' 0
+        SetRegSilent 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Privacy' 'DisconnectedState' 2
+        SetRegSilent 'HKCU:\SOFTWARE\Policies\Microsoft\Office\16.0\Common\Privacy' 'ControllerConnectedServicesEnabled' 2
+    }
+    if ($opts['chkNvidiaSvc']) { DisableSvcSilent 'NvTelemetryContainer' 'Nvidia Telemetry Container' }
+    if ($opts['chkNvidiaTasks']) {
+        foreach ($t in @('NvTmMon','NvTmRep','NvProfileUpdaterDaily','NvProfileUpdaterOnLogon')) {
+            DisableTaskSilent "${t}_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}" '\'
+        }
+    }
+    if ($opts['chkNvidiaReg']) {
+        SetRegSilent 'HKLM:\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client' 'Optimus_EnableTelemetry' 0
+        SetRegSilent 'HKLM:\SYSTEM\CurrentControlSet\Services\NvTelemetryContainer' 'Start' 4
+    }
+    if ($opts['chkEdgeDiag']) {
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiagnosticData' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'PersonalizationReportingEnabled' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'UserFeedbackAllowed' 0
+    }
+    if ($opts['chkEdgeMetrics']) {
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'MetricsReportingEnabled' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'SendSiteInfoToImproveServices' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'CopilotPageContext' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'CopilotCDPPageContext' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiscoverPageContextEnabled' 0
+    }
+    if ($opts['chkEdgeWebView']) {
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'DiagnosticData' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'MetricsReportingEnabled' 0
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'PersonalizationReportingEnabled' 0
+    }
+    if ($opts['chkVSTelemetry']) {
+        SetRegSilent 'HKCU:\SOFTWARE\Microsoft\VisualStudio\Telemetry' 'TurnOffSwitch' 1
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableFeedbackDialog' 1
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableEmailInput' 1
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableScreenshotCapture' 1
+        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\SQM' 'OptIn' 0
+    }
+    if ($opts['chkVSSvc']) {
+        DisableSvcSilent 'VSStandardCollectorService150' 'VS Standard Collector Service'
+        if (-not $WhatIf) {
+            try { Stop-Process -Name 'PerfWatson2' -Force -ErrorAction SilentlyContinue } catch { }
+        }
+    }
+
+    if (-not $WhatIf) {
+        try { & gpupdate.exe /force 2>$null | Out-Null; SilentLog "Group Policy updated" } catch { }
+    }
+
+    $selected = ($opts.Values | Where-Object { $_ -eq $true }).Count
+    SilentLog "Complete: $selected items processed, $($script:silentFailed) failed."
+    if ($script:silentFailed -gt 0) { exit 1 }
+    exit 0
 }
 
 # --- Auto-elevate ---

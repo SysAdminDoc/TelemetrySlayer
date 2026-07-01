@@ -10,6 +10,10 @@ All notable changes to TelemetrySlayer will be documented in this file.
 - Added "Open Log Folder" button to the GUI toolbar.
 - Added try/catch around Apply and Undo workers to capture unhandled exceptions in the log.
 - Updated README with verified download path (SHA256 checksum), trust warning for `irm | iex`, and full Edge/Nvidia/VS feature tables.
+- Added silent RMM mode: `-Silent -Preset Balanced|Minimal|Paranoid -ConfigPath <json> -WhatIf -LogPath <path>`.
+- Added Visual Studio CEIP/SQM `OptIn` policy coverage.
+- Added domain join and MDM enrollment detection with warnings in scan and apply.
+- Added post-apply verification ledger (`%ProgramData%\TelemetrySlayer\Runs\<timestamp>\results.json`).
 
 ## [v1.5.0] - 2026-06-28
 
