@@ -40,6 +40,13 @@ Describe 'TelemetrySlayer static safety checks' {
         $script:ScriptText | Should -Match 'btnOpenLogs'
     }
 
+    It 'writes post-apply verification ledger' {
+        $script:ScriptText | Should -Match 'function AddActionResult'
+        $script:ScriptText | Should -Match 'function SaveRunResults'
+        $script:ScriptText | Should -Match 'results\.json'
+        $script:ScriptText | Should -Match "programDataRoot 'Runs'"
+    }
+
     It 'catches unhandled worker exceptions' {
         $script:ScriptText | Should -Match 'FATAL unhandled exception in Apply worker'
         $script:ScriptText | Should -Match 'FATAL unhandled exception in Undo worker'

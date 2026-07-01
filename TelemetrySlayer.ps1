@@ -1271,6 +1271,7 @@ $btnApply.Add_Click({
         $programDataRoot = Join-Path $env:ProgramData 'TelemetrySlayer'
         $stateRoot = Join-Path $programDataRoot 'State'
         $backupRoot = Join-Path $programDataRoot 'Backups'
+        $runsRoot = Join-Path $programDataRoot 'Runs'
         try {
             if (-not (Test-Path -LiteralPath $programDataRoot)) {
                 New-Item -Path $programDataRoot -ItemType Directory -Force | Out-Null
@@ -1280,6 +1281,9 @@ $btnApply.Add_Click({
             }
             if (-not (Test-Path -LiteralPath $backupRoot)) {
                 New-Item -Path $backupRoot -ItemType Directory -Force | Out-Null
+            }
+            if (-not (Test-Path -LiteralPath $runsRoot)) {
+                New-Item -Path $runsRoot -ItemType Directory -Force | Out-Null
             }
             $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
             $restorePath = Join-Path $stateRoot "restore-$stamp.json"
@@ -1320,6 +1324,40 @@ $btnApply.Add_Click({
             Services = [ordered]@{}
             Tasks = [ordered]@{}
             Firewall = [ordered]@{}
+        }
+
+        $runPath = Join-Path $runsRoot $stamp
+        New-Item -Path $runPath -ItemType Directory -Force | Out-Null
+        $resultsPath = Join-Path $runPath 'results.json'
+        $runResults = [ordered]@{
+            SchemaVersion = 1
+            ToolVersion = '1.6.0'
+            StartedAt = (Get-Date).ToString('o')
+            ComputerName = $env:COMPUTERNAME
+            Actions = [System.Collections.ArrayList]::new()
+            Summary = [ordered]@{ Applied = 0; Skipped = 0; Failed = 0; NeedsReboot = 0 }
+        }
+
+        function SaveRunResults {
+            try {
+                $runResults.CompletedAt = (Get-Date).ToString('o')
+                $json = $runResults | ConvertTo-Json -Depth 12
+                Set-Content -LiteralPath $resultsPath -Value $json -Encoding UTF8 -ErrorAction Stop
+            } catch { Log "  WARN verification ledger save failed - $($_.Exception.Message)" }
+        }
+
+        function AddActionResult([string]$Name, [string]$Status, [string]$Detail) {
+            [void]$runResults.Actions.Add([ordered]@{
+                Name = $Name
+                Status = $Status
+                Detail = $Detail
+                Timestamp = (Get-Date).ToString('o')
+            })
+            switch ($Status) {
+                'Applied' { $runResults.Summary.Applied++ }
+                'Skipped' { $runResults.Summary.Skipped++ }
+                'Failed'  { $runResults.Summary.Failed++ }
+            }
         }
 
         function GetStateKey([string]$Category, [string]$Name) {
@@ -2061,10 +2099,23 @@ $btnApply.Add_Click({
         } catch { Log "  gpupdate skipped" }
 
         SaveRestoreState | Out-Null
+
+        foreach ($key in $opts.Keys) {
+            if ($opts[$key] -eq $true) {
+                AddActionResult $key 'Applied' 'Selected and processed'
+            } else {
+                AddActionResult $key 'Skipped' 'Not selected'
+            }
+        }
+        SaveRunResults
+        Log "  Verification ledger: $resultsPath"
+
         Log ""
         Log "=== COMPLETE ==="
-        $count = ($opts.Values | Where-Object { $_ -eq $true }).Count
-        Log "Applied $count items successfully. A restart is recommended."
+        $applied = $runResults.Summary.Applied
+        $skipped = $runResults.Summary.Skipped
+        $failed = $runResults.Summary.Failed
+        Log "Applied $applied, skipped $skipped, failed $failed. A restart is recommended."
         Log "DONE"
 
         } catch {
