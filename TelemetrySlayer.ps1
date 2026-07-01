@@ -775,7 +775,8 @@ $xaml = @'
                     <Button x:Name="btnSelectAll" Content="Select All" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0"/>
                     <Button x:Name="btnDeselectAll" Content="Deselect All" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0"/>
                     <Button x:Name="btnScan" Content="Re-Scan Status" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0"/>
-                    <Button x:Name="btnOpenLogs" Content="Open Log Folder" FontSize="11" Padding="10,4" Background="#21262d"/>
+                    <Button x:Name="btnOpenLogs" Content="Open Log Folder" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0"/>
+                    <Button x:Name="btnOpenBackups" Content="Open Backups" FontSize="11" Padding="10,4" Background="#21262d"/>
                 </StackPanel>
 
                 <!-- Services -->
@@ -1137,6 +1138,7 @@ $btnSelectAll = $window.FindName('btnSelectAll')
 $btnDeselectAll = $window.FindName('btnDeselectAll')
 $btnScan      = $window.FindName('btnScan')
 $btnOpenLogs  = $window.FindName('btnOpenLogs')
+$btnOpenBackups = $window.FindName('btnOpenBackups')
 $chkAllowTelemetry = $window.FindName('chkAllowTelemetry')
 
 # --- Log file setup ---
@@ -1209,6 +1211,14 @@ $btnOpenLogs.Add_Click({
         Start-Process explorer.exe -ArgumentList $script:logFolderPath
     } else {
         [System.Windows.MessageBox]::Show("Log folder not found:`n$($script:logFolderPath)", 'TelemetrySlayer', 'OK', 'Information') | Out-Null
+    }
+})
+$script:backupFolderPath = Join-Path $env:ProgramData 'TelemetrySlayer\Backups'
+$btnOpenBackups.Add_Click({
+    if (Test-Path -LiteralPath $script:backupFolderPath) {
+        Start-Process explorer.exe -ArgumentList $script:backupFolderPath
+    } else {
+        [System.Windows.MessageBox]::Show("Backup folder not found:`n$($script:backupFolderPath)", 'TelemetrySlayer', 'OK', 'Information') | Out-Null
     }
 })
 
@@ -2451,6 +2461,18 @@ $btnApply.Add_Click({
         }
         SaveRunResults
         Log "  Verification ledger: $resultsPath"
+
+        try {
+            $maxBackups = 10
+            $allBackups = @(Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending)
+            if ($allBackups.Count -gt $maxBackups) {
+                $toRemove = $allBackups | Select-Object -Skip $maxBackups
+                foreach ($old in $toRemove) {
+                    Remove-Item -LiteralPath $old.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                    Log "  Pruned old backup: $($old.Name)"
+                }
+            }
+        } catch { Log "  WARN backup pruning failed - $($_.Exception.Message)" }
 
         Log ""
         Log "=== COMPLETE ==="
