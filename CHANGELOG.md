@@ -2,6 +2,15 @@
 
 All notable changes to TelemetrySlayer will be documented in this file.
 
+## [v1.6.0] - 2026-07-01
+
+- Expanded Edge policy coverage: added `UserFeedbackAllowed`, `HubsSidebarEnabled`, `CopilotPageContext`, `CopilotCDPPageContext`, and `DiscoverPageContextEnabled`.
+- Added Edge WebView2 telemetry category with `DiagnosticData`, `MetricsReportingEnabled`, and `PersonalizationReportingEnabled`.
+- Added durable transcript logging to `%ProgramData%\TelemetrySlayer\Logs\<timestamp>.log` for every Apply/Undo run.
+- Added "Open Log Folder" button to the GUI toolbar.
+- Added try/catch around Apply and Undo workers to capture unhandled exceptions in the log.
+- Updated README with verified download path (SHA256 checksum), trust warning for `irm | iex`, and full Edge/Nvidia/VS feature tables.
+
 ## [v1.5.0] - 2026-06-28
 
 - Added SKU-aware `AllowTelemetry` / `MaxTelemetryAllowed` handling.

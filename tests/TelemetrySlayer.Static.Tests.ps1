@@ -33,6 +33,18 @@ Describe 'TelemetrySlayer static safety checks' {
         $script:ScriptText | Should -Match 'Get-ScheduledTask -TaskName \$TaskName -TaskPath \$TaskPath'
     }
 
+    It 'writes durable transcript log files' {
+        $script:ScriptText | Should -Match 'function Start-LogFile'
+        $script:ScriptText | Should -Match 'function Write-LogLine'
+        $script:ScriptText | Should -Match 'TelemetrySlayer\\Logs'
+        $script:ScriptText | Should -Match 'btnOpenLogs'
+    }
+
+    It 'catches unhandled worker exceptions' {
+        $script:ScriptText | Should -Match 'FATAL unhandled exception in Apply worker'
+        $script:ScriptText | Should -Match 'FATAL unhandled exception in Undo worker'
+    }
+
     It 'uses SKU-aware AllowTelemetry scan and apply behavior' {
         $script:ScriptText | Should -Match 'function GetTelemetrySkuProfile'
         $script:ScriptText | Should -Match 'SupportsDiagnosticOff'

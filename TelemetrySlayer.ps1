@@ -1,5 +1,5 @@
 ﻿#Requires -Version 5.1
-# TelemetrySlayer v1.5.0
+# TelemetrySlayer v1.6.0
 # Disables Microsoft telemetry, data collection, and related bloat on Windows 10/11
 
 param(
@@ -374,7 +374,7 @@ Add-Type -Name Win -Namespace Native -MemberDefinition @'
 $xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="TelemetrySlayer v1.5.0" Width="820" Height="750"
+        Title="TelemetrySlayer v1.6.0" Width="820" Height="750"
         WindowStartupLocation="CenterScreen" Background="#0d1117"
         ResizeMode="CanResizeWithGrip" MinWidth="750" MinHeight="600">
     <Window.Resources>
@@ -437,7 +437,8 @@ $xaml = @'
                 <StackPanel Orientation="Horizontal" Margin="4,6,0,2">
                     <Button x:Name="btnSelectAll" Content="Select All" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0"/>
                     <Button x:Name="btnDeselectAll" Content="Deselect All" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0"/>
-                    <Button x:Name="btnScan" Content="Re-Scan Status" FontSize="11" Padding="10,4" Background="#21262d"/>
+                    <Button x:Name="btnScan" Content="Re-Scan Status" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0"/>
+                    <Button x:Name="btnOpenLogs" Content="Open Log Folder" FontSize="11" Padding="10,4" Background="#21262d"/>
                 </StackPanel>
 
                 <!-- Services -->
@@ -798,7 +799,35 @@ $btnUndo      = $window.FindName('btnUndo')
 $btnSelectAll = $window.FindName('btnSelectAll')
 $btnDeselectAll = $window.FindName('btnDeselectAll')
 $btnScan      = $window.FindName('btnScan')
+$btnOpenLogs  = $window.FindName('btnOpenLogs')
 $chkAllowTelemetry = $window.FindName('chkAllowTelemetry')
+
+# --- Log file setup ---
+$script:logFolderPath = Join-Path $env:ProgramData 'TelemetrySlayer\Logs'
+try {
+    if (-not (Test-Path -LiteralPath $script:logFolderPath)) {
+        New-Item -Path $script:logFolderPath -ItemType Directory -Force | Out-Null
+    }
+} catch { }
+$script:currentLogPath = $null
+
+function Start-LogFile {
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $script:currentLogPath = Join-Path $script:logFolderPath "$stamp.log"
+    try {
+        Set-Content -LiteralPath $script:currentLogPath -Value "TelemetrySlayer v1.6.0 - $(Get-Date -Format 'o')" -Encoding UTF8 -ErrorAction Stop
+    } catch {
+        $script:currentLogPath = $null
+    }
+}
+
+function Write-LogLine([string]$Line) {
+    if ($script:currentLogPath) {
+        try {
+            Add-Content -LiteralPath $script:currentLogPath -Value $Line -Encoding UTF8 -ErrorAction SilentlyContinue
+        } catch { }
+    }
+}
 
 # All checkboxes
 $allCheckboxNames = @(
@@ -838,6 +867,13 @@ foreach ($name in $allIndicatorNames) {
 $btnSelectAll.Add_Click({ $allCheckboxes | ForEach-Object { $_.IsChecked = $true }; UpdateSelectedCount })
 $btnDeselectAll.Add_Click({ $allCheckboxes | ForEach-Object { $_.IsChecked = $false }; UpdateSelectedCount })
 $btnClose.Add_Click({ $window.Close() })
+$btnOpenLogs.Add_Click({
+    if (Test-Path -LiteralPath $script:logFolderPath) {
+        Start-Process explorer.exe -ArgumentList $script:logFolderPath
+    } else {
+        [System.Windows.MessageBox]::Show("Log folder not found:`n$($script:logFolderPath)", 'TelemetrySlayer', 'OK', 'Information') | Out-Null
+    }
+})
 
 # --- Update selected count in status bar ---
 function UpdateSelectedCount {
@@ -1117,6 +1153,7 @@ $btnApply.Add_Click({
     $btnUndo.IsEnabled = $false
     $txtStatus.Text = 'Applying...'
     $txtLog.Clear()
+    Start-LogFile
 
     # Capture checkbox states on UI thread
     $opts = @{}
@@ -1184,6 +1221,7 @@ $btnApply.Add_Click({
             }
         }
 
+        try {
         $programDataRoot = Join-Path $env:ProgramData 'TelemetrySlayer'
         $stateRoot = Join-Path $programDataRoot 'State'
         $backupRoot = Join-Path $programDataRoot 'Backups'
@@ -1213,7 +1251,7 @@ $btnApply.Add_Click({
 
         $backupManifest = [ordered]@{
             SchemaVersion = 1
-            ToolVersion = '1.5.0'
+            ToolVersion = '1.6.0'
             CreatedAt = (Get-Date).ToString('o')
             ComputerName = $env:COMPUTERNAME
             BackupPath = $backupPath
@@ -1229,7 +1267,7 @@ $btnApply.Add_Click({
 
         $restore = [ordered]@{
             SchemaVersion = 1
-            ToolVersion = '1.5.0'
+            ToolVersion = '1.6.0'
             CreatedAt = (Get-Date).ToString('o')
             ComputerName = $env:COMPUTERNAME
             Registry = [ordered]@{}
@@ -1959,6 +1997,12 @@ $btnApply.Add_Click({
         Log "Applied $count items successfully. A restart is recommended."
         Log "DONE"
 
+        } catch {
+            $logQueue.Enqueue("[$(Get-Date -Format 'HH:mm:ss')] FATAL unhandled exception in Apply worker: $($_.Exception.GetType().FullName)")
+            $logQueue.Enqueue("[$(Get-Date -Format 'HH:mm:ss')]   $($_.Exception.Message)")
+            $logQueue.Enqueue("[$(Get-Date -Format 'HH:mm:ss')]   at $($_.InvocationInfo.PositionMessage)")
+            $logQueue.Enqueue("[$(Get-Date -Format 'HH:mm:ss')] DONE")
+        }
     }) | Out-Null
 
     $handle = $ps.BeginInvoke()
@@ -1966,11 +2010,11 @@ $btnApply.Add_Click({
     $timer = New-Object System.Windows.Threading.DispatcherTimer
     $timer.Interval = [TimeSpan]::FromMilliseconds(100)
     $timer.Add_Tick({
-        # Drain all queued messages to the console
         $msg = $null
         while ($script:logQueue.TryDequeue([ref]$msg)) {
             $txtLog.AppendText("$msg`r`n")
             $txtLog.ScrollToEnd()
+            Write-LogLine $msg
 
             if ($msg -match 'DONE$') {
                 $timer.Stop()
@@ -1996,6 +2040,7 @@ $btnUndo.Add_Click({
     $btnUndo.IsEnabled = $false
     $txtStatus.Text = 'Undoing all changes...'
     $txtLog.Clear()
+    Start-LogFile
 
     $queue = $script:logQueue
 
@@ -2010,6 +2055,7 @@ $btnUndo.Add_Click({
             $logQueue.Enqueue("[$ts] $msg")
         }
 
+        try {
         $stateRoot = Join-Path $env:ProgramData 'TelemetrySlayer\State'
         $latestRestorePath = Join-Path $stateRoot 'restore-latest.json'
         if (-not (Test-Path -LiteralPath $latestRestorePath)) {
@@ -2354,6 +2400,12 @@ $btnUndo.Add_Click({
         Log "All TelemetrySlayer changes have been reversed. A restart is recommended."
         Log "DONE"
 
+        } catch {
+            $logQueue.Enqueue("[$(Get-Date -Format 'HH:mm:ss')] FATAL unhandled exception in Undo worker: $($_.Exception.GetType().FullName)")
+            $logQueue.Enqueue("[$(Get-Date -Format 'HH:mm:ss')]   $($_.Exception.Message)")
+            $logQueue.Enqueue("[$(Get-Date -Format 'HH:mm:ss')]   at $($_.InvocationInfo.PositionMessage)")
+            $logQueue.Enqueue("[$(Get-Date -Format 'HH:mm:ss')] DONE")
+        }
     }) | Out-Null
 
     $handle = $ps.BeginInvoke()
@@ -2365,6 +2417,7 @@ $btnUndo.Add_Click({
         while ($script:logQueue.TryDequeue([ref]$msg)) {
             $txtLog.AppendText("$msg`r`n")
             $txtLog.ScrollToEnd()
+            Write-LogLine $msg
 
             if ($msg -match 'DONE$') {
                 $timer.Stop()
