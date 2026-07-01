@@ -14,6 +14,9 @@ All notable changes to TelemetrySlayer will be documented in this file.
 - Added Visual Studio CEIP/SQM `OptIn` policy coverage.
 - Added domain join and MDM enrollment detection with warnings in scan and apply.
 - Added post-apply verification ledger (`%ProgramData%\TelemetrySlayer\Runs\<timestamp>\results.json`).
+- Added visible focus rectangles and indicator tooltips for accessibility.
+- Added "Open Backups" button and backup retention pruning (keeps last 10).
+- Added risk level and source provenance metadata to every action in the catalog.
 
 ## [v1.5.0] - 2026-06-28
 
