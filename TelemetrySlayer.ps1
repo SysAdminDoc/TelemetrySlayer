@@ -707,6 +707,19 @@ $xaml = @'
             <Setter Property="Foreground" Value="#e0e0e0"/>
             <Setter Property="Margin" Value="0,3"/>
             <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FocusVisualStyle">
+                <Setter.Value>
+                    <Style>
+                        <Setter Property="Control.Template">
+                            <Setter.Value>
+                                <ControlTemplate>
+                                    <Rectangle Stroke="#58a6ff" StrokeThickness="1.5" StrokeDashArray="3 1" Margin="-2" RadiusX="2" RadiusY="2"/>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style TargetType="Button">
             <Setter Property="Background" Value="#238636"/>
@@ -1486,12 +1499,15 @@ function RunScan {
                 if ($state -eq 'OFF') {
                     $ind.Text = 'OFF'
                     $ind.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#4ade80')
+                    $ind.ToolTip = 'Already disabled by TelemetrySlayer or policy'
                 } elseif ($state -eq 'ON') {
                     $ind.Text = 'ON'
                     $ind.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#f85149')
+                    $ind.ToolTip = 'Currently active - select to disable'
                 } else {
                     $ind.Text = 'N/A'
                     $ind.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#6e7681')
+                    $ind.ToolTip = 'Not present on this system'
                 }
             }
         }
