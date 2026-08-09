@@ -17,6 +17,8 @@ All notable changes to TelemetrySlayer will be documented in this file.
 - Added visible focus rectangles and indicator tooltips for accessibility.
 - Added "Open Backups" button and backup retention pruning (keeps last 10).
 - Added risk level and source provenance metadata to every action in the catalog.
+- Added Windows build profiles and opt-in Windows 11 AI/Recall policy coverage with unsupported-build and SKU-aware handling.
+- Added stable action IDs, policy paths, supported-build/SKU metadata, and legacy labels for obsolete Edge policy fallbacks.
 
 ## [v1.5.0] - 2026-06-28
 

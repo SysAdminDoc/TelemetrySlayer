@@ -70,6 +70,15 @@ Describe 'TelemetrySlayer static safety checks' {
         $script:ScriptText | Should -Match 'TelemetrySlayer will apply required diagnostic data value 1'
     }
 
+    It 'gates current Windows AI policy coverage by build profile' {
+        $script:ScriptText | Should -Match 'function Get-TelemetrySlayerBuildProfile'
+        $script:ScriptText | Should -Match 'SupportsWindowsAI'
+        $script:ScriptText | Should -Match 'DisableAIDataAnalysis'
+        $script:ScriptText | Should -Match 'AllowRecallEnablement'
+        $script:ScriptText | Should -Match 'RemoveMicrosoftCopilotApp'
+        $script:ScriptText | Should -Match 'indWindowsAI=N/A'
+    }
+
     It 'restores undo state from the saved snapshot instead of broad defaults' {
         $script:ScriptText | Should -Match 'ConvertFrom-Json'
         $script:ScriptText | Should -Match 'function RestoreSvc'

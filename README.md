@@ -126,6 +126,14 @@ The script auto-elevates to Administrator. No dependencies, no modules, no insta
 | Disable Edge Metrics, Sidebar, and Copilot | Disables `MetricsReportingEnabled`, `SendSiteInfoToImproveServices`, `HubsSidebarEnabled`, `CopilotPageContext`, `CopilotCDPPageContext`, and `DiscoverPageContextEnabled` | On |
 | Disable Edge WebView2 Telemetry | Disables `DiagnosticData`, `MetricsReportingEnabled`, and `PersonalizationReportingEnabled` for the WebView2 runtime | On |
 
+`MetricsReportingEnabled`, `SendSiteInfoToImproveServices`, and `DiscoverPageContextEnabled` are retained as legacy compatibility fallbacks because current Edge policy documentation marks them obsolete. Current Edge diagnostic, personalization, feedback, sidebar, and Copilot-context policies remain covered alongside those fallbacks.
+
+### Windows AI and Recall
+
+| Feature | Policy coverage | Default |
+|---------|-----------------|---------|
+| Disable Windows AI, Copilot, and Recall | Windows 11 24H2+ `AllowRecallEnablement`, `DisableAIDataAnalysis`, `DisableClickToDo`, `DisableSettingsAgent`, Paint AI policies, legacy `TurnOffWindowsCopilot`, and supported-SKU `RemoveMicrosoftCopilotApp` | Off in Balanced/Minimal; On in Paranoid |
+
 ### Nvidia Telemetry
 
 | Feature | Description | Default |
@@ -193,6 +201,7 @@ Combined with outbound firewall rules, this provides defense-in-depth: even if s
 - Clear existing telemetry log data
 - Disable Office telemetry and feedback
 - Disable Edge diagnostic data, feedback, metrics, Copilot sidebar, and WebView2 telemetry
+- Disable Windows AI, Recall snapshot saving, Click to Do, Paint AI entry points, and Copilot policies on supported builds
 - Disable Nvidia and Visual Studio telemetry services, tasks, and registry keys
 - Write a preflight recovery bundle with registry exports, restore snapshot copy, manifest, and restore-point attempt status
 - Restore prior registry values, service startup/status, scheduled-task enabled state, firewall baselines, IFEO, and autologger settings from the latest apply snapshot

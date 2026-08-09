@@ -28,12 +28,23 @@ function Get-TelemetrySlayerOperation {
 }
 
 function Get-TelemetrySlayerRegistryOperation {
-    param([string]$Path, [string]$Name, $Value, [string]$Type = 'DWord')
+    param(
+        [string]$Path,
+        [string]$Name,
+        $Value,
+        [string]$Type = 'DWord',
+        [string]$SupportedBuilds = 'All supported builds',
+        [string]$SupportedSKUs = 'All supported SKUs',
+        [switch]$Legacy
+    )
     Get-TelemetrySlayerOperation -Kind 'Registry' -Target "$Path\$Name" -Data @{
         Path = $Path
         Name = $Name
         Value = $Value
         Type = $Type
+        SupportedBuilds = $SupportedBuilds
+        SupportedSKUs = $SupportedSKUs
+        Legacy = [bool]$Legacy
         Apply = 'Set'
         Test = 'Equals'
         Verify = 'Equals'
@@ -100,6 +111,57 @@ function Get-TelemetrySlayerProcessOperation {
     }
 }
 
+function Get-TelemetrySlayerBuildProfile {
+    param(
+        [string]$Build,
+        [string]$DisplayVersion,
+        [string]$ProductName,
+        [string]$EditionId,
+        [bool]$IsServer = $false
+    )
+
+    $buildNumber = 0
+    [void][int]::TryParse([string]$Build, [ref]$buildNumber)
+    $isWindows11 = ($ProductName -match 'Windows 11') -or ($buildNumber -ge 22000)
+    $profileName = 'Unknown Windows'
+
+    if ($IsServer) {
+        if ($buildNumber -ge 26100) {
+            $profileName = 'Windows Server 2025+'
+        } elseif ($buildNumber -ge 20348) {
+            $profileName = 'Windows Server 2022'
+        } else {
+            $profileName = 'Windows Server'
+        }
+    } elseif ($isWindows11) {
+        if ($buildNumber -ge 26200) {
+            $profileName = 'Windows 11 25H2+'
+        } elseif ($buildNumber -ge 26100) {
+            $profileName = 'Windows 11 24H2'
+        } elseif ($buildNumber -ge 22631) {
+            $profileName = 'Windows 11 23H2'
+        } elseif ($buildNumber -ge 22621) {
+            $profileName = 'Windows 11 22H2'
+        } else {
+            $profileName = 'Windows 11 21H2'
+        }
+    } elseif ($buildNumber -ge 19041) {
+        $profileName = if ($DisplayVersion) { "Windows 10 $DisplayVersion" } else { 'Windows 10' }
+    }
+
+    [pscustomobject]@{
+        Name = $profileName
+        Build = [string]$Build
+        BuildNumber = $buildNumber
+        DisplayVersion = [string]$DisplayVersion
+        ProductName = [string]$ProductName
+        EditionId = [string]$EditionId
+        IsWindows11 = [bool]$isWindows11
+        IsServer = [bool]$IsServer
+        SupportsWindowsAI = [bool]($isWindows11 -and $buildNumber -ge 26100 -and -not $IsServer)
+    }
+}
+
 function Get-TelemetrySlayerAction {
     param(
         [Parameter(Mandatory = $true)][string]$CheckBox,
@@ -108,16 +170,67 @@ function Get-TelemetrySlayerAction {
         [ValidateSet('Low','Medium','High','Critical')]
         [string]$Risk = 'Low',
         [string]$Source,
-        [string]$SupportedOS = 'Windows 10/11'
+        [string]$SupportedOS = 'Windows 10/11',
+        [string]$Category,
+        [string]$StableId,
+        [string]$Description,
+        [string]$SourceUrl,
+        [string]$PolicyPath,
+        [string]$SupportedBuilds = 'All supported Windows 10/11 builds',
+        [string]$SupportedSKUs = 'All supported SKUs',
+        [string]$UndoType = 'Exact pre-apply snapshot'
     )
+
+    if (-not $StableId) {
+        $StableId = 'TelemetrySlayer.' + ($CheckBox -replace '^chk', '')
+    }
+    if (-not $Description) {
+        $Description = $Name
+    }
+    if (-not $Category) {
+        $Category = switch -regex ($CheckBox) {
+            '^chk(Edge)' { 'Edge Telemetry'; break }
+            '^chk(Office)' { 'Office Telemetry'; break }
+            '^chk(Nvidia)' { 'Nvidia Telemetry'; break }
+            '^chk(VS)' { 'Visual Studio Telemetry'; break }
+            '^chk(Firewall|IFEO|ClearETL)' { 'Firewall and Hardening'; break }
+            '^chk(WindowsAI)' { 'Windows AI'; break }
+            '^chk(Diag|Dmw|Wer|Pca|DPS|Compat|Program|Startup|Proxy|Consolidator|Usb|Kernel|Disk|Smart|PcaPatch)' { 'Services and Scheduled Tasks'; break }
+            default { 'Registry and Policy' }
+        }
+    }
+    if (-not $PolicyPath) {
+        $PolicyPath = (($Operations | Where-Object { $_.Kind -eq 'Registry' } | ForEach-Object { $_.Target }) -join '; ')
+        if (-not $PolicyPath) {
+            $PolicyPath = (($Operations | ForEach-Object { $_.Target }) -join '; ')
+        }
+    }
+    if (-not $SourceUrl) {
+        $SourceUrl = switch ($Category) {
+            'Windows AI' { 'https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-windowsai' }
+            'Edge Telemetry' { 'https://learn.microsoft.com/en-us/deployedge/microsoft-edge-policies' }
+            'Office Telemetry' { 'https://learn.microsoft.com/en-us/microsoft-365-apps/privacy/manage-privacy-controls' }
+            'Visual Studio Telemetry' { 'https://learn.microsoft.com/en-us/visualstudio/ide/visual-studio-experience-improvement-program' }
+            default { 'https://github.com/SysAdminDoc/TelemetrySlayer/blob/main/TelemetrySlayer.ps1' }
+        }
+    }
 
     [pscustomobject]@{
         CheckBox = $CheckBox
+        StableId = $StableId
         Name = $Name
+        Description = $Description
+        Category = $Category
         Operations = @($Operations)
         Risk = $Risk
         Source = $Source
+        SourceUrl = $SourceUrl
+        PolicyPath = $PolicyPath
         SupportedOS = $SupportedOS
+        SupportedBuilds = $SupportedBuilds
+        SupportedSKUs = $SupportedSKUs
+        UndoType = $UndoType
+        LegacyPolicies = @($Operations | Where-Object { $_.Data.Legacy -eq $true } | ForEach-Object { $_.Data.Name })
     }
 }
 
@@ -285,18 +398,31 @@ function Get-TelemetrySlayerActionCatalog {
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'UserFeedbackAllowed' 0
         ) -Risk 'Low' -Source 'Microsoft Edge browser policy'
         Get-TelemetrySlayerAction 'chkEdgeMetrics' 'Edge metrics and sidebar' @(
-            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'MetricsReportingEnabled' 0
-            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'SendSiteInfoToImproveServices' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'MetricsReportingEnabled' 0 -Legacy
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'SendSiteInfoToImproveServices' 0 -Legacy
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'CopilotPageContext' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'CopilotCDPPageContext' 0
-            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiscoverPageContextEnabled' 0
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiscoverPageContextEnabled' 0 -Legacy
         ) -Risk 'Low' -Source 'Microsoft Edge metrics/sidebar/Copilot policy'
         Get-TelemetrySlayerAction 'chkEdgeWebView' 'Edge WebView2 telemetry' @(
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'DiagnosticData' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'MetricsReportingEnabled' 0
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'PersonalizationReportingEnabled' 0
         ) -Risk 'Low' -Source 'Microsoft Edge WebView2 runtime policy'
+        Get-TelemetrySlayerAction 'chkWindowsAI' 'Windows AI, Copilot, and Recall' @(
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'AllowRecallEnablement' 0 -SupportedBuilds 'Windows 11 24H2 (build 26100) and later'
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 1 -SupportedBuilds 'Windows 11 24H2 (build 26100) and later'
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 1 -SupportedBuilds 'Windows 11 24H2 (build 26100) and later'
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableClickToDo' 1 -SupportedBuilds 'Windows 11 24H2 (build 26100) and later'
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableClickToDo' 1 -SupportedBuilds 'Windows 11 24H2 (build 26100) and later'
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableSettingsAgent' 1 -SupportedBuilds 'Windows 11 24H2 (build 26100) and later'
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableCocreator' 1 -SupportedBuilds 'Windows 11 22H2 (build 22621.4870) and later'
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableGenerativeFill' 1 -SupportedBuilds 'Windows 11 22H2 (build 22621.4870) and later'
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableImageCreator' 1 -SupportedBuilds 'Windows 11 22H2 (build 22621.4870) and later'
+            Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot' 'TurnOffWindowsCopilot' 1 -SupportedBuilds 'Windows 10 21H2 and later' -Legacy
+            Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'RemoveMicrosoftCopilotApp' 1 -SupportedBuilds 'Windows 11 24H2 (build 26100) and later' -SupportedSKUs 'Enterprise, Education, IoT Enterprise'
+        ) -Risk 'High' -Source 'Microsoft WindowsAI Policy CSP' -Category 'Windows AI' -SourceUrl 'https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-windowsai' -SupportedOS 'Windows 11 (Windows 10 legacy Copilot policy)' -SupportedBuilds 'Windows 11 22H2 and later; selected Windows 10 legacy policy' -SupportedSKUs 'Pro, Enterprise, Education, IoT Enterprise'
         Get-TelemetrySlayerAction 'chkVSTelemetry' 'Visual Studio telemetry' @(
             Get-TelemetrySlayerRegistryOperation 'HKCU:\SOFTWARE\Microsoft\VisualStudio\Telemetry' 'TurnOffSwitch' 1
             Get-TelemetrySlayerRegistryOperation 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableFeedbackDialog' 1
@@ -380,9 +506,10 @@ function Get-TelemetrySlayerPreset {
         chkFirewallCompat = $true; chkFirewallCEIP = $true; chkFirewallDiagTrack = $true
         chkIFEO = $true; chkClearETL = $true
         chkOfficeTelemetry = $true; chkOfficeFeedback = $true
-        chkNvidiaSvc = $true; chkNvidiaTasks = $true; chkNvidiaReg = $true
-        chkEdgeDiag = $true; chkEdgeMetrics = $true; chkEdgeWebView = $true
-        chkVSTelemetry = $true; chkVSSvc = $true
+         chkNvidiaSvc = $true; chkNvidiaTasks = $true; chkNvidiaReg = $true
+         chkEdgeDiag = $true; chkEdgeMetrics = $true; chkEdgeWebView = $true
+         chkWindowsAI = $false
+         chkVSTelemetry = $true; chkVSSvc = $true
     }
     switch ($Name) {
         'Minimal' {
@@ -402,10 +529,11 @@ function Get-TelemetrySlayerPreset {
             return $minimal
         }
         'Paranoid' {
-            $paranoid = $balanced.Clone()
-            $paranoid['chkDPS'] = $true
-            $paranoid['chkSmartScreen'] = $true
-            return $paranoid
+             $paranoid = $balanced.Clone()
+             $paranoid['chkDPS'] = $true
+             $paranoid['chkSmartScreen'] = $true
+             $paranoid['chkWindowsAI'] = $true
+             return $paranoid
         }
         default { return $balanced }
     }
@@ -462,14 +590,19 @@ if ($Silent) {
             $editionId = if ($cv.EditionID) { $cv.EditionID } else { 'Unknown' }
             $build = if ($cv.CurrentBuildNumber) { $cv.CurrentBuildNumber } else { $os.BuildNumber }
             $displayVersion = if ($cv.DisplayVersion) { $cv.DisplayVersion } elseif ($cv.ReleaseId) { $cv.ReleaseId } else { 'Unknown' }
-            $isServer = ($os.ProductType -ne 1) -or ($productName -match 'Server') -or ($editionId -match 'Server')
-            $supportsDiagnosticOff = $isServer -or ($editionId -match 'Enterprise|Education') -or ($productName -match 'Enterprise|Education')
-            $targetValue = if ($supportsDiagnosticOff) { 0 } else { 1 }
-            return [pscustomobject]@{
-                AllowTelemetryValue = $targetValue
-                Summary = "$productName $displayVersion build $build edition $editionId"
-                Reason = if ($supportsDiagnosticOff) { 'Diagnostic data off (0)' } else { 'Required diagnostic data (1)' }
-            }
+             $isServer = ($os.ProductType -ne 1) -or ($productName -match 'Server') -or ($editionId -match 'Server')
+             $supportsDiagnosticOff = $isServer -or ($editionId -match 'Enterprise|Education') -or ($productName -match 'Enterprise|Education')
+             $targetValue = if ($supportsDiagnosticOff) { 0 } else { 1 }
+             $buildProfile = Get-TelemetrySlayerBuildProfile $build $displayVersion $productName $editionId $isServer
+             return [pscustomobject]@{
+                 AllowTelemetryValue = $targetValue
+                 Summary = "$productName $displayVersion build $build edition $editionId"
+                 Reason = if ($supportsDiagnosticOff) { 'Diagnostic data off (0)' } else { 'Required diagnostic data (1)' }
+                 BuildProfile = $buildProfile.Name
+                 BuildNumber = $buildProfile.BuildNumber
+                 SupportsWindowsAI = $buildProfile.SupportsWindowsAI
+                 EditionId = $editionId
+             }
         } catch {
             return [pscustomobject]@{ AllowTelemetryValue = 1; Summary = 'Unknown'; Reason = 'SKU detection failed' }
         }
@@ -656,12 +789,33 @@ if ($Silent) {
         SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'CopilotCDPPageContext' 0
         SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiscoverPageContextEnabled' 0
     }
-    if ($opts['chkEdgeWebView']) {
-        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'DiagnosticData' 0
-        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'MetricsReportingEnabled' 0
-        SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'PersonalizationReportingEnabled' 0
-    }
-    if ($opts['chkVSTelemetry']) {
+         if ($opts['chkEdgeWebView']) {
+             SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'DiagnosticData' 0
+             SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'MetricsReportingEnabled' 0
+             SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'PersonalizationReportingEnabled' 0
+         }
+         if ($opts['chkWindowsAI']) {
+             if ($telemetryProfile.SupportsWindowsAI) {
+                 SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'AllowRecallEnablement' 0
+                 SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 1
+                 SetRegSilent 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 1
+                 SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableClickToDo' 1
+                 SetRegSilent 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableClickToDo' 1
+                 SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableSettingsAgent' 1
+                 SetRegSilent 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableCocreator' 1
+                 SetRegSilent 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableGenerativeFill' 1
+                 SetRegSilent 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableImageCreator' 1
+                 SetRegSilent 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot' 'TurnOffWindowsCopilot' 1
+                 if ($telemetryProfile.EditionId -match 'Enterprise|Education|IoT') {
+                     SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'RemoveMicrosoftCopilotApp' 1
+                 } else {
+                     SilentLog '  SKIP RemoveMicrosoftCopilotApp: policy is limited to Enterprise, Education, and IoT Enterprise SKUs'
+                 }
+             } else {
+                 SilentLog "  SKIP Windows AI policies: unsupported build profile $($telemetryProfile.BuildProfile)"
+             }
+         }
+         if ($opts['chkVSTelemetry']) {
         SetRegSilent 'HKCU:\SOFTWARE\Microsoft\VisualStudio\Telemetry' 'TurnOffSwitch' 1
         SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableFeedbackDialog' 1
         SetRegSilent 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableEmailInput' 1
@@ -1074,6 +1228,19 @@ $xaml = @'
                     </StackPanel>
                 </GroupBox>
 
+                <!-- Windows AI / Recall -->
+                <GroupBox Header="  Windows AI and Recall  ">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="indWindowsAI" Text="--" Width="26" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,4,0" AutomationProperties.Name="Windows AI status"/>
+                            <CheckBox x:Name="chkWindowsAI" IsChecked="False"
+                                Content="Disable Windows AI, Copilot, and Recall"
+                                ToolTip="Windows 11 24H2+ policy bundle: disables Recall snapshot saving, Click to Do, the Settings AI agent, Paint AI features, and legacy Windows Copilot entry points. The Copilot app removal policy is applied only on supported Enterprise, Education, and IoT Enterprise SKUs. Unchecked by default because these are feature controls, not required telemetry services."
+                                AutomationProperties.Name="Disable Windows AI, Copilot, and Recall"/>
+                        </StackPanel>
+                    </StackPanel>
+                </GroupBox>
+
                 <!-- Visual Studio Telemetry -->
                 <GroupBox Header="  Visual Studio Telemetry  ">
                     <StackPanel>
@@ -1185,9 +1352,10 @@ $allCheckboxNames = @(
     'chkInventoryCollector','chkStepsRecorder','chkWiFiSense',
     'chkFirewallCompat','chkFirewallCEIP','chkFirewallDiagTrack','chkIFEO','chkClearETL',
     'chkOfficeTelemetry','chkOfficeFeedback',
-    'chkNvidiaSvc','chkNvidiaTasks','chkNvidiaReg',
-    'chkEdgeDiag','chkEdgeMetrics','chkEdgeWebView',
-    'chkVSTelemetry','chkVSSvc'
+     'chkNvidiaSvc','chkNvidiaTasks','chkNvidiaReg',
+     'chkEdgeDiag','chkEdgeMetrics','chkEdgeWebView',
+     'chkWindowsAI',
+     'chkVSTelemetry','chkVSSvc'
 )
 $allCheckboxes = $allCheckboxNames | ForEach-Object { $window.FindName($_) }
 
@@ -1201,9 +1369,10 @@ $allIndicatorNames = @(
     'indInventoryCollector','indStepsRecorder','indWiFiSense',
     'indFirewallCompat','indFirewallCEIP','indFirewallDiagTrack','indIFEO','indClearETL',
     'indOfficeTelemetry','indOfficeFeedback',
-    'indNvidiaSvc','indNvidiaTasks','indNvidiaReg',
-    'indEdgeDiag','indEdgeMetrics','indEdgeWebView',
-    'indVSTelemetry','indVSSvc'
+     'indNvidiaSvc','indNvidiaTasks','indNvidiaReg',
+     'indEdgeDiag','indEdgeMetrics','indEdgeWebView',
+     'indWindowsAI',
+     'indVSTelemetry','indVSSvc'
 )
 $allIndicators = @{}
 foreach ($name in $allIndicatorNames) {
@@ -1318,11 +1487,22 @@ function RunScan {
                 $editionId = if ($cv.EditionID) { $cv.EditionID } else { 'Unknown' }
                 $build = if ($cv.CurrentBuildNumber) { $cv.CurrentBuildNumber } else { $os.BuildNumber }
                 $displayVersion = if ($cv.DisplayVersion) { $cv.DisplayVersion } elseif ($cv.ReleaseId) { $cv.ReleaseId } else { 'Unknown' }
-                $isServer = ($os.ProductType -ne 1) -or ($productName -match 'Server') -or ($editionId -match 'Server')
-                $isLTSC = ($productName -match 'LTSC|LTSB') -or ($editionId -match 'EnterpriseS|IoTEnterpriseS')
-                $supportsDiagnosticOff = $isServer -or ($editionId -match 'Enterprise|Education') -or ($productName -match 'Enterprise|Education')
-                $targetValue = if ($supportsDiagnosticOff) { 0 } else { 1 }
-                $reason = if ($supportsDiagnosticOff) {
+                 $isServer = ($os.ProductType -ne 1) -or ($productName -match 'Server') -or ($editionId -match 'Server')
+                 $isLTSC = ($productName -match 'LTSC|LTSB') -or ($editionId -match 'EnterpriseS|IoTEnterpriseS')
+                 $supportsDiagnosticOff = $isServer -or ($editionId -match 'Enterprise|Education') -or ($productName -match 'Enterprise|Education')
+                 $targetValue = if ($supportsDiagnosticOff) { 0 } else { 1 }
+                 $buildNumber = 0
+                 [void][int]::TryParse([string]$build, [ref]$buildNumber)
+                 $isWindows11 = ($productName -match 'Windows 11') -or ($buildNumber -ge 22000)
+                 if ($isServer) {
+                     $buildProfileName = if ($buildNumber -ge 26100) { 'Windows Server 2025+' } elseif ($buildNumber -ge 20348) { 'Windows Server 2022' } else { 'Windows Server' }
+                 } elseif ($isWindows11) {
+                     $buildProfileName = if ($buildNumber -ge 26200) { 'Windows 11 25H2+' } elseif ($buildNumber -ge 26100) { 'Windows 11 24H2' } elseif ($buildNumber -ge 22631) { 'Windows 11 23H2' } elseif ($buildNumber -ge 22621) { 'Windows 11 22H2' } else { 'Windows 11 21H2' }
+                 } else {
+                     $buildProfileName = if ($buildNumber -ge 19041) { "Windows 10 $displayVersion" } else { 'Unknown Windows' }
+                 }
+                 $supportsWindowsAI = $isWindows11 -and $buildNumber -ge 26100 -and -not $isServer
+                 $reason = if ($supportsDiagnosticOff) {
                     'Diagnostic data off value 0 is supported on this SKU.'
                 } else {
                     'Diagnostic data off value 0 is not supported on this SKU; TelemetrySlayer will apply required diagnostic data value 1.'
@@ -1334,8 +1514,11 @@ function RunScan {
                     Build = $build
                     DisplayVersion = $displayVersion
                     IsServer = [bool]$isServer
-                    IsLTSC = [bool]$isLTSC
-                    SupportsDiagnosticOff = [bool]$supportsDiagnosticOff
+                     IsLTSC = [bool]$isLTSC
+                     BuildProfile = $buildProfileName
+                     BuildNumber = $buildNumber
+                     SupportsWindowsAI = [bool]$supportsWindowsAI
+                     SupportsDiagnosticOff = [bool]$supportsDiagnosticOff
                     AllowTelemetryValue = $targetValue
                     Summary = "$productName $displayVersion build $build edition $editionId"
                     Reason = $reason
@@ -1347,8 +1530,10 @@ function RunScan {
                     Build = 'Unknown'
                     DisplayVersion = 'Unknown'
                     IsServer = $false
-                    IsLTSC = $false
-                    SupportsDiagnosticOff = $false
+                     IsLTSC = $false
+                     BuildProfile = 'Unknown Windows'
+                     SupportsWindowsAI = $false
+                     SupportsDiagnosticOff = $false
                     AllowTelemetryValue = 1
                     Summary = 'Unknown Windows SKU'
                     Reason = "Windows SKU detection failed; using required diagnostic data value 1. $($_.Exception.Message)"
@@ -1435,11 +1620,18 @@ function RunScan {
         CheckReg 'HKLM:\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client' 'Optimus_EnableTelemetry' 0 'indNvidiaReg'
 
         # Edge
-        CheckReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiagnosticData' 0 'indEdgeDiag'
-        CheckReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'MetricsReportingEnabled' 0 'indEdgeMetrics'
-        CheckReg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'DiagnosticData' 0 'indEdgeWebView'
+         CheckReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiagnosticData' 0 'indEdgeDiag'
+         CheckReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'MetricsReportingEnabled' 0 'indEdgeMetrics'
+         CheckReg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'DiagnosticData' 0 'indEdgeWebView'
 
-        # Visual Studio
+         # Windows AI / Recall (Windows 11 24H2+)
+         if ($telemetryProfile.SupportsWindowsAI) {
+             CheckReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 1 'indWindowsAI'
+         } else {
+             $scanQueue.Enqueue('indWindowsAI=N/A')
+         }
+
+         # Visual Studio
         CheckReg 'HKCU:\SOFTWARE\Microsoft\VisualStudio\Telemetry' 'TurnOffSwitch' 1 'indVSTelemetry'
         CheckSvc 'VSStandardCollectorService150' 'indVSSvc'
 
@@ -1587,10 +1779,21 @@ $btnApply.Add_Click({
                 $build = if ($cv.CurrentBuildNumber) { $cv.CurrentBuildNumber } else { $os.BuildNumber }
                 $displayVersion = if ($cv.DisplayVersion) { $cv.DisplayVersion } elseif ($cv.ReleaseId) { $cv.ReleaseId } else { 'Unknown' }
                 $isServer = ($os.ProductType -ne 1) -or ($productName -match 'Server') -or ($editionId -match 'Server')
-                $isLTSC = ($productName -match 'LTSC|LTSB') -or ($editionId -match 'EnterpriseS|IoTEnterpriseS')
-                $supportsDiagnosticOff = $isServer -or ($editionId -match 'Enterprise|Education') -or ($productName -match 'Enterprise|Education')
-                $targetValue = if ($supportsDiagnosticOff) { 0 } else { 1 }
-                $reason = if ($supportsDiagnosticOff) {
+                 $isLTSC = ($productName -match 'LTSC|LTSB') -or ($editionId -match 'EnterpriseS|IoTEnterpriseS')
+                 $supportsDiagnosticOff = $isServer -or ($editionId -match 'Enterprise|Education') -or ($productName -match 'Enterprise|Education')
+                 $targetValue = if ($supportsDiagnosticOff) { 0 } else { 1 }
+                 $buildNumber = 0
+                 [void][int]::TryParse([string]$build, [ref]$buildNumber)
+                 $isWindows11 = ($productName -match 'Windows 11') -or ($buildNumber -ge 22000)
+                 if ($isServer) {
+                     $buildProfileName = if ($buildNumber -ge 26100) { 'Windows Server 2025+' } elseif ($buildNumber -ge 20348) { 'Windows Server 2022' } else { 'Windows Server' }
+                 } elseif ($isWindows11) {
+                     $buildProfileName = if ($buildNumber -ge 26200) { 'Windows 11 25H2+' } elseif ($buildNumber -ge 26100) { 'Windows 11 24H2' } elseif ($buildNumber -ge 22631) { 'Windows 11 23H2' } elseif ($buildNumber -ge 22621) { 'Windows 11 22H2' } else { 'Windows 11 21H2' }
+                 } else {
+                     $buildProfileName = if ($buildNumber -ge 19041) { "Windows 10 $displayVersion" } else { 'Unknown Windows' }
+                 }
+                 $supportsWindowsAI = $isWindows11 -and $buildNumber -ge 26100 -and -not $isServer
+                 $reason = if ($supportsDiagnosticOff) {
                     'Diagnostic data off value 0 is supported on this SKU.'
                 } else {
                     'Diagnostic data off value 0 is not supported on this SKU; TelemetrySlayer will apply required diagnostic data value 1.'
@@ -1601,9 +1804,12 @@ $btnApply.Add_Click({
                     EditionId = $editionId
                     Build = $build
                     DisplayVersion = $displayVersion
-                    IsServer = [bool]$isServer
-                    IsLTSC = [bool]$isLTSC
-                    SupportsDiagnosticOff = [bool]$supportsDiagnosticOff
+                     IsServer = [bool]$isServer
+                     IsLTSC = [bool]$isLTSC
+                     BuildProfile = $buildProfileName
+                     BuildNumber = $buildNumber
+                     SupportsWindowsAI = [bool]$supportsWindowsAI
+                     SupportsDiagnosticOff = [bool]$supportsDiagnosticOff
                     AllowTelemetryValue = $targetValue
                     Summary = "$productName $displayVersion build $build edition $editionId"
                     Reason = $reason
@@ -1614,9 +1820,11 @@ $btnApply.Add_Click({
                     EditionId = 'Unknown'
                     Build = 'Unknown'
                     DisplayVersion = 'Unknown'
-                    IsServer = $false
-                    IsLTSC = $false
-                    SupportsDiagnosticOff = $false
+                     IsServer = $false
+                     IsLTSC = $false
+                     BuildProfile = 'Unknown Windows'
+                     SupportsWindowsAI = $false
+                     SupportsDiagnosticOff = $false
                     AllowTelemetryValue = 1
                     Summary = 'Unknown Windows SKU'
                     Reason = "Windows SKU detection failed; using required diagnostic data value 1. $($_.Exception.Message)"
@@ -1867,9 +2075,13 @@ $btnApply.Add_Click({
                 'HKLM:\SYSTEM\CurrentControlSet\Services\DPS',
                 'HKLM:\SYSTEM\CurrentControlSet\Services\NvTelemetryContainer',
                 'HKLM:\SYSTEM\CurrentControlSet\Services\VSStandardCollectorService150',
-                'HKLM:\SOFTWARE\Policies\Microsoft\Edge',
-                'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView',
-                'HKCU:\SOFTWARE\Microsoft\VisualStudio\Telemetry',
+                 'HKLM:\SOFTWARE\Policies\Microsoft\Edge',
+                 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView',
+                 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI',
+                 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI',
+                 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot',
+                 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint',
+                 'HKCU:\SOFTWARE\Microsoft\VisualStudio\Telemetry',
                 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback',
                 'HKLM:\SOFTWARE\Policies\Microsoft\VisualStudio\SQM'
             ) | Select-Object -Unique
@@ -2412,13 +2624,37 @@ $btnApply.Add_Click({
             SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' 'DiscoverPageContextEnabled' 0
         }
 
-        if ($opts['chkEdgeWebView']) {
-            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'DiagnosticData' 0
-            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'MetricsReportingEnabled' 0
-            SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'PersonalizationReportingEnabled' 0
-        }
+         if ($opts['chkEdgeWebView']) {
+             SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'DiagnosticData' 0
+             SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'MetricsReportingEnabled' 0
+             SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeWebView' 'PersonalizationReportingEnabled' 0
+         }
 
-        # ========================
+         if ($opts['chkWindowsAI']) {
+             $aiProfile = GetTelemetrySkuProfile
+             if ($aiProfile.SupportsWindowsAI) {
+                 Log "  Windows AI build profile: $($aiProfile.BuildProfile)"
+                 SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'AllowRecallEnablement' 0
+                 SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 1
+                 SetReg 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 1
+                 SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableClickToDo' 1
+                 SetReg 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableClickToDo' 1
+                 SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'DisableSettingsAgent' 1
+                 SetReg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableCocreator' 1
+                 SetReg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableGenerativeFill' 1
+                 SetReg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableImageCreator' 1
+                 SetReg 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot' 'TurnOffWindowsCopilot' 1
+                 if ($aiProfile.EditionId -match 'Enterprise|Education|IoT') {
+                     SetReg 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'RemoveMicrosoftCopilotApp' 1
+                 } else {
+                     Log '  SKIP RemoveMicrosoftCopilotApp: policy is limited to Enterprise, Education, and IoT Enterprise SKUs'
+                 }
+             } else {
+                 Log "  SKIP Windows AI policies: unsupported build profile $($aiProfile.BuildProfile)"
+             }
+         }
+
+         # ========================
         #  VISUAL STUDIO TELEMETRY
         # ========================
         if ($opts['chkVSTelemetry'] -or $opts['chkVSSvc']) {

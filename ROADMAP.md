@@ -5,10 +5,6 @@ Forward-looking plans for TelemetrySlayer — a single-file PowerShell WPF tool 
 ## Planned Features
 
 ### Detection & Coverage
-- Per-Windows-build profile system (22H2 / 23H2 / 24H2 / 25H2 / Server 2022/2025 / LTSC 2024) with version-gated toggles
-- Microsoft 365 / Office telemetry (`OfficeTelemetryAgent`, Office Diagnostic Data) as a dedicated category
-- Edge + Edge WebView2 telemetry registry keys (`MetricsReportingEnabled`, `UserFeedbackAllowed`, Copilot-on-Edge)
-- Copilot / Recall / AI Explorer toggles — 24H2+ surfaces several new registry paths; track them explicitly
 - Network hardening: LLMNR, NetBIOS, WPAD, mDNS, SSDP disable toggles (audit before killing — clinic environments need mDNS)
 
 ### Policy Persistence
@@ -20,7 +16,6 @@ Forward-looking plans for TelemetrySlayer — a single-file PowerShell WPF tool 
 ### UX
 - Grouped categories (Services, Tasks, Registry, WMI, Firewall) with impact badges (Critical / High / Medium / Low)
 - Live preview of the exact commands that will run before Apply
-- "Paranoid / Balanced / Minimal" presets so non-experts pick one button
 - Rich search across every toggle (name, description, registry path, service name)
 - Transcript viewer tab (live + history of past runs)
 

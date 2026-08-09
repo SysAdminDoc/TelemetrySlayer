@@ -74,6 +74,7 @@ Describe 'TelemetrySlayer action catalog' {
             chkEdgeDiag = @('Registry', 'Registry', 'Registry')
             chkEdgeMetrics = @('Registry', 'Registry', 'Registry', 'Registry', 'Registry', 'Registry')
             chkEdgeWebView = @('Registry', 'Registry', 'Registry')
+            chkWindowsAI = @('Registry', 'Registry', 'Registry', 'Registry', 'Registry', 'Registry', 'Registry', 'Registry', 'Registry', 'Registry', 'Registry')
             chkVSTelemetry = @('Registry', 'Registry', 'Registry', 'Registry', 'Registry')
             chkVSSvc = @('Service', 'Process')
         }
@@ -125,6 +126,40 @@ Describe 'TelemetrySlayer action catalog' {
             $action.Source | Should -Not -BeNullOrEmpty -Because "$($action.CheckBox) needs a source reference"
             $action.SupportedOS | Should -Not -BeNullOrEmpty -Because "$($action.CheckBox) needs supported OS info"
         }
+    }
+
+    It 'has stable provenance and build metadata for every action' {
+        foreach ($action in $script:Catalog) {
+            $action.StableId | Should -Match '^TelemetrySlayer\.'
+            $action.Category | Should -Not -BeNullOrEmpty
+            $action.SourceUrl | Should -Match '^https://'
+            $action.PolicyPath | Should -Not -BeNullOrEmpty
+            $action.SupportedBuilds | Should -Not -BeNullOrEmpty
+            $action.SupportedSKUs | Should -Not -BeNullOrEmpty
+            $action.UndoType | Should -Be 'Exact pre-apply snapshot'
+        }
+    }
+
+    It 'models current Windows AI and Recall policy targets' {
+        $windowsAi = $script:CatalogByCheckBox.chkWindowsAI
+        @($windowsAi.Operations.Target) | Should -Contain 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI\DisableAIDataAnalysis'
+        @($windowsAi.Operations.Target) | Should -Contain 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI\AllowRecallEnablement'
+        @($windowsAi.Operations.Target) | Should -Contain 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI\DisableClickToDo'
+        @($windowsAi.Operations.Target) | Should -Contain 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsAI\RemoveMicrosoftCopilotApp'
+        @($windowsAi.Operations | Where-Object { $_.Data.Legacy }).Count | Should -Be 1
+        $windowsAi.SupportedBuilds | Should -Match 'Windows 11'
+    }
+
+    It 'labels obsolete Edge policy names as legacy compatibility fallbacks' {
+        $edge = $script:CatalogByCheckBox.chkEdgeMetrics
+        @($edge.LegacyPolicies) | Should -Be @('MetricsReportingEnabled', 'SendSiteInfoToImproveServices', 'DiscoverPageContextEnabled')
+    }
+
+    It 'classifies Windows build profiles for gated policy coverage' {
+        (Get-TelemetrySlayerBuildProfile -Build '19045' -DisplayVersion '22H2' -ProductName 'Windows 10 Pro' -EditionId 'Professional').Name | Should -Match 'Windows 10'
+        (Get-TelemetrySlayerBuildProfile -Build '22631' -DisplayVersion '23H2' -ProductName 'Windows 11 Pro' -EditionId 'Professional').SupportsWindowsAI | Should -BeFalse
+        (Get-TelemetrySlayerBuildProfile -Build '26100' -DisplayVersion '24H2' -ProductName 'Windows 11 Pro' -EditionId 'Professional').SupportsWindowsAI | Should -BeTrue
+        (Get-TelemetrySlayerBuildProfile -Build '26100' -DisplayVersion '24H2' -ProductName 'Windows Server 2025' -EditionId 'ServerStandard' -IsServer $true).SupportsWindowsAI | Should -BeFalse
     }
 
     It 'exposes preset profiles covering every catalog checkbox' {
