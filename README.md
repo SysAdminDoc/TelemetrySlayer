@@ -264,6 +264,18 @@ powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1 -ExportPolicyPath .
 
 The bundle contains `TelemetrySlayer.admx`, `en-US\TelemetrySlayer.adml`, machine/user `.reg` files, `policy.csv`, and `policy.json`. The JSON/CSV files retain source URLs, supported build/SKU gates, legacy-policy labels, and dynamic SKU-gated values that are intentionally omitted from generic `.reg`/ADMX files.
 
+### Weekly Re-Apply Task
+
+Register or remove a hidden weekly Sunday 03:00 task that runs the selected preset with highest privileges:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1 -RegisterReapplyTask -Preset Balanced
+powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1 -UnregisterReapplyTask
+powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1 -RegisterReapplyTask -WhatIf
+```
+
+The task writes to `%ProgramData%\TelemetrySlayer\Logs\scheduled-reapply.log` and `%ProgramData%\TelemetrySlayer\Reports\scheduled-reapply.json`. It uses the current interactive administrator identity so user-scoped policies remain associated with the intended profile; it runs when that user is logged on.
+
 ### NinjaOne
 
 1. Create new Script → PowerShell

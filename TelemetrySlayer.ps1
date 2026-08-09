@@ -10,7 +10,11 @@ param(
     [string]$ConfigPath,
     [switch]$WhatIf,
     [string]$LogPath,
-    [string]$ExportPolicyPath
+    [string]$ExportPolicyPath,
+    [string]$ReportPath,
+    [switch]$RegisterReapplyTask,
+    [switch]$UnregisterReapplyTask,
+    [string]$ReapplyTaskName = 'TelemetrySlayer Weekly Reapply'
 )
 
 function Get-TelemetrySlayerOperation {
@@ -689,6 +693,77 @@ function Export-TelemetrySlayerPolicyBundle {
     return [pscustomobject]@{ Path = $Path; RegistryEntries = $registryEntries.Count; AdmxPolicies = $admxPolicyCount }
 }
 
+function Get-TelemetrySlayerReapplyTaskDefinition {
+    param(
+        [Parameter(Mandatory = $true)][string]$ScriptPath,
+        [ValidateSet('Balanced','Minimal','Paranoid')][string]$Preset = 'Balanced',
+        [string]$LogPath,
+        [string]$ReportPath,
+        [string]$TaskName = 'TelemetrySlayer Weekly Reapply'
+    )
+
+    if (-not $LogPath) {
+        $logDirectory = Join-Path $env:ProgramData 'TelemetrySlayer\Logs'
+        $LogPath = Join-Path $logDirectory 'scheduled-reapply.log'
+    }
+    if (-not $ReportPath) {
+        $reportDirectory = Join-Path $env:ProgramData 'TelemetrySlayer\Reports'
+        $ReportPath = Join-Path $reportDirectory 'scheduled-reapply.json'
+    }
+    $escapedScript = $ScriptPath.Replace('"', '\\"')
+    $escapedLog = $LogPath.Replace('"', '\\"')
+    $escapedReport = $ReportPath.Replace('"', '\\"')
+    $arguments = '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $escapedScript + '" -Silent -Preset ' + $Preset + ' -LogPath "' + $escapedLog + '" -ReportPath "' + $escapedReport + '"'
+
+    [pscustomobject]@{
+        TaskName = $TaskName
+        ScriptPath = $ScriptPath
+        Executable = 'powershell.exe'
+        Arguments = $arguments
+        LogPath = $LogPath
+        ReportPath = $ReportPath
+        Frequency = 'Weekly'
+        Day = 'Sunday'
+        Time = '03:00'
+        RunLevel = 'Highest'
+        LogonType = 'InteractiveToken'
+    }
+}
+
+function Register-TelemetrySlayerReapplyTask {
+    param(
+        [Parameter(Mandatory = $true)][string]$ScriptPath,
+        [ValidateSet('Balanced','Minimal','Paranoid')][string]$Preset = 'Balanced',
+        [string]$LogPath,
+        [string]$ReportPath,
+        [string]$TaskName = 'TelemetrySlayer Weekly Reapply',
+        [switch]$WhatIf
+    )
+
+    $definition = Get-TelemetrySlayerReapplyTaskDefinition -ScriptPath $ScriptPath -Preset $Preset -LogPath $LogPath -ReportPath $ReportPath -TaskName $TaskName
+    if ($WhatIf) {
+        $definition | Add-Member -NotePropertyName WhatIf -NotePropertyValue $true -PassThru
+        return
+    }
+
+    $action = New-ScheduledTaskAction -Execute $definition.Executable -Argument $definition.Arguments -WorkingDirectory (Split-Path -Parent $ScriptPath)
+    $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At (Get-Date -Hour 3 -Minute 0 -Second 0)
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $principal = New-ScheduledTaskPrincipal -UserId $identity -LogonType InteractiveToken -RunLevel Highest
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew
+    Register-ScheduledTask -TaskName $definition.TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
+    return $definition
+}
+
+function Unregister-TelemetrySlayerReapplyTask {
+    param([string]$TaskName = 'TelemetrySlayer Weekly Reapply', [switch]$WhatIf)
+    if ($WhatIf) {
+        return [pscustomobject]@{ TaskName = $TaskName; WhatIf = $true; Removed = $false }
+    }
+    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop
+    return [pscustomobject]@{ TaskName = $TaskName; WhatIf = $false; Removed = $true }
+}
+
 function Get-TelemetrySlayerFinalizeOperation {
     Get-TelemetrySlayerOperation -Kind 'Gpupdate' -Target 'gpupdate.exe /force' -Data @{
         Apply = 'RefreshPolicy'
@@ -806,6 +881,37 @@ if ($ExportPolicyPath) {
     }
 }
 
+if ($RegisterReapplyTask -or $UnregisterReapplyTask) {
+    if (-not $WhatIf -and -not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        Write-Error 'Scheduled task registration requires Administrator privileges.'
+        exit 1
+    }
+    try {
+        if ($UnregisterReapplyTask) {
+            $removed = Unregister-TelemetrySlayerReapplyTask -TaskName $ReapplyTaskName -WhatIf:$WhatIf
+            if ($WhatIf) {
+                Write-Output ("WHATIF unregister scheduled task: {0}" -f $removed.TaskName)
+            } else {
+                Write-Output ("Unregistered scheduled task: {0}" -f $removed.TaskName)
+            }
+        }
+        if ($RegisterReapplyTask) {
+            $registered = Register-TelemetrySlayerReapplyTask -ScriptPath $PSCommandPath -Preset $Preset -LogPath $LogPath -ReportPath $ReportPath -TaskName $ReapplyTaskName -WhatIf:$WhatIf
+            if ($WhatIf) {
+                Write-Output ("WHATIF register weekly scheduled task: {0} ({1} {2} at {3})" -f $registered.TaskName, $registered.Frequency, $registered.Day, $registered.Time)
+                Write-Output ("  Arguments: {0}" -f $registered.Arguments)
+            } else {
+                Write-Output ("Registered weekly scheduled task: {0}" -f $registered.TaskName)
+            }
+        }
+        exit 0
+    } catch {
+        Write-Error "Scheduled task operation failed: $($_.Exception.Message)"
+        exit 1
+    }
+}
+
 # --- Silent mode ---
 if ($Silent) {
     if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
@@ -838,11 +944,42 @@ if ($Silent) {
         if (-not (Test-Path -LiteralPath $logDir)) { New-Item -Path $logDir -ItemType Directory -Force | Out-Null }
         Join-Path $logDir "$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
     }
+    $silentReportPath = $ReportPath
+    $script:silentStartedAt = (Get-Date).ToString('o')
 
     function SilentLog([string]$msg) {
         $line = "[$(Get-Date -Format 'HH:mm:ss')] $msg"
         Write-Output $line
         try { Add-Content -LiteralPath $silentLogPath -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue } catch { }
+    }
+
+    function SaveSilentReport([int]$ExitCode, [int]$SelectedCount) {
+        if (-not $silentReportPath) { return }
+        try {
+            $reportDirectory = Split-Path -Parent $silentReportPath
+            if ($reportDirectory -and -not (Test-Path -LiteralPath $reportDirectory)) {
+                New-Item -Path $reportDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
+            }
+            $report = [ordered]@{
+                SchemaVersion = 1
+                ToolVersion = '1.6.0'
+                Mode = 'Silent'
+                Preset = $Preset
+                WhatIf = [bool]$WhatIf
+                StartedAt = $script:silentStartedAt
+                CompletedAt = (Get-Date).ToString('o')
+                ComputerName = $env:COMPUTERNAME
+                LogPath = $silentLogPath
+                SelectedCount = $SelectedCount
+                FailedCount = $script:silentFailed
+                ExitCode = $ExitCode
+                SKU = if ($telemetryProfile) { $telemetryProfile.Summary } else { 'Unknown' }
+            }
+            $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $silentReportPath -Encoding UTF8 -ErrorAction Stop
+            SilentLog "Report: $silentReportPath"
+        } catch {
+            SilentLog "WARN report save failed - $($_.Exception.Message)"
+        }
     }
 
     function GetTelemetrySkuProfile {
@@ -1098,8 +1235,9 @@ if ($Silent) {
 
     $selected = ($opts.Values | Where-Object { $_ -eq $true }).Count
     SilentLog "Complete: $selected items processed, $($script:silentFailed) failed."
-    if ($script:silentFailed -gt 0) { exit 1 }
-    exit 0
+    $silentExitCode = if ($script:silentFailed -gt 0) { 1 } else { 0 }
+    SaveSilentReport $silentExitCode $selected
+    exit $silentExitCode
 }
 
 # --- Auto-elevate ---

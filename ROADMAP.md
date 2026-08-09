@@ -9,9 +9,6 @@ Forward-looking plans for TelemetrySlayer — a single-file PowerShell WPF tool 
 
 ### Policy Persistence
 - "Survives Windows Update" regression suite — snapshot every applied key, re-run audit after a cumulative update, diff
-- GPO mode: export equivalent ADMX-based policy bundle so IT can push via AD/Intune
-- Scheduled re-apply task (weekly) that silently re-asserts the expected state and emails a report
-- Rollback bundle — every apply writes a paired `.reg` restore file keyed by timestamp
 
 ### UX
 

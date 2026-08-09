@@ -59,6 +59,16 @@ Describe 'TelemetrySlayer static safety checks' {
         $script:ScriptText | Should -Match 'PairedRegistryRestore'
     }
 
+    It 'supports weekly hidden re-apply scheduling with a local report' {
+        $script:ScriptText | Should -Match '\[switch\]\$RegisterReapplyTask'
+        $script:ScriptText | Should -Match '\[switch\]\$UnregisterReapplyTask'
+        $script:ScriptText | Should -Match 'function Get-TelemetrySlayerReapplyTaskDefinition'
+        $script:ScriptText | Should -Match 'New-ScheduledTaskTrigger -Weekly'
+        $script:ScriptText | Should -Match 'SaveSilentReport'
+        $script:ScriptText | Should -Match 'scheduled-reapply\.json'
+        $script:ScriptText | Should -Match 'WindowStyle Hidden'
+    }
+
     It 'writes post-apply verification ledger' {
         $script:ScriptText | Should -Match 'function AddActionResult'
         $script:ScriptText | Should -Match 'function SaveRunResults'

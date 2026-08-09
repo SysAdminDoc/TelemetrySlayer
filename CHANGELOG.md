@@ -22,6 +22,7 @@ All notable changes to TelemetrySlayer will be documented in this file.
 - Added metadata-driven risk badges, rich action search, an exact command preview, transcript history browsing, and a Windows privacy/feedback viewer shortcut.
 - Added catalog-derived policy bundle export (`-ExportPolicyPath`) with ADMX/ADML, machine/user `.reg`, CSV, and JSON artifacts.
 - Added timestamped paired `restore-registry.reg` files to preflight backup manifests.
+- Added hidden weekly re-apply task registration/removal with `-WhatIf` support and local JSON status reports.
 
 ## [v1.5.0] - 2026-06-28
 

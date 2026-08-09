@@ -185,6 +185,19 @@ Describe 'TelemetrySlayer action catalog' {
         Get-Content -LiteralPath (Join-Path $exportPath 'machine.reg') -Raw | Should -Match 'Windows Registry Editor Version 5.00'
     }
 
+    It 'builds a hidden weekly re-apply task definition and dry-run registration' {
+        $definition = Get-TelemetrySlayerReapplyTaskDefinition -ScriptPath 'C:\Tools\TelemetrySlayer.ps1' -Preset 'Paranoid' -LogPath 'C:\ProgramData\TelemetrySlayer\Logs\weekly.log' -ReportPath 'C:\ProgramData\TelemetrySlayer\Reports\weekly.json'
+        $definition.Frequency | Should -Be 'Weekly'
+        $definition.Day | Should -Be 'Sunday'
+        $definition.Time | Should -Be '03:00'
+        $definition.Arguments | Should -Match '-WindowStyle Hidden'
+        $definition.Arguments | Should -Match '-Silent'
+        $definition.Arguments | Should -Match '-Preset Paranoid'
+        $definition.Arguments | Should -Match '-ReportPath'
+        $whatIf = Register-TelemetrySlayerReapplyTask -ScriptPath 'C:\Tools\TelemetrySlayer.ps1' -WhatIf:$true
+        $whatIf.WhatIf | Should -BeTrue
+    }
+
     It 'exposes preset profiles covering every catalog checkbox' {
         foreach ($presetName in @('Balanced', 'Minimal', 'Paranoid')) {
             $preset = Get-TelemetrySlayerPreset $presetName
