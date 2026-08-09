@@ -8,7 +8,6 @@ Forward-looking plans for TelemetrySlayer — a single-file PowerShell WPF tool 
 - Network hardening: LLMNR, NetBIOS, WPAD, mDNS, SSDP disable toggles (audit before killing — clinic environments need mDNS)
 
 ### Policy Persistence
-- "Survives Windows Update" regression suite — snapshot every applied key, re-run audit after a cumulative update, diff
 
 ### UX
 

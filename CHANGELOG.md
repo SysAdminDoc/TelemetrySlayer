@@ -23,6 +23,7 @@ All notable changes to TelemetrySlayer will be documented in this file.
 - Added catalog-derived policy bundle export (`-ExportPolicyPath`) with ADMX/ADML, machine/user `.reg`, CSV, and JSON artifacts.
 - Added timestamped paired `restore-registry.reg` files to preflight backup manifests.
 - Added hidden weekly re-apply task registration/removal with `-WhatIf` support and local JSON status reports.
+- Added read-only catalog audit baselines and post-update drift comparison via `-AuditPath`/`-CompareAuditPath`.
 
 ## [v1.5.0] - 2026-06-28
 

@@ -11,6 +11,8 @@ param(
     [switch]$WhatIf,
     [string]$LogPath,
     [string]$ExportPolicyPath,
+    [string]$AuditPath,
+    [string]$CompareAuditPath,
     [string]$ReportPath,
     [switch]$RegisterReapplyTask,
     [switch]$UnregisterReapplyTask,
@@ -164,6 +166,220 @@ function Get-TelemetrySlayerBuildProfile {
         IsWindows11 = [bool]$isWindows11
         IsServer = [bool]$IsServer
         SupportsWindowsAI = [bool]($isWindows11 -and $buildNumber -ge 26100 -and -not $IsServer)
+    }
+}
+
+function Get-TelemetrySlayerHostProfile {
+    try {
+        $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+        $cv = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue
+        $productName = if ($cv.ProductName) { [string]$cv.ProductName } else { [string]$os.Caption }
+        $editionId = if ($cv.EditionID) { [string]$cv.EditionID } else { 'Unknown' }
+        $build = if ($cv.CurrentBuildNumber) { [string]$cv.CurrentBuildNumber } else { [string]$os.BuildNumber }
+        $displayVersion = if ($cv.DisplayVersion) { [string]$cv.DisplayVersion } elseif ($cv.ReleaseId) { [string]$cv.ReleaseId } else { 'Unknown' }
+        $isServer = ($os.ProductType -ne 1) -or ($productName -match 'Server') -or ($editionId -match 'Server')
+        $supportsDiagnosticOff = $isServer -or ($editionId -match 'Enterprise|Education') -or ($productName -match 'Enterprise|Education')
+        $buildProfile = Get-TelemetrySlayerBuildProfile -Build $build -DisplayVersion $displayVersion -ProductName $productName -EditionId $editionId -IsServer $isServer
+        return [pscustomobject]@{
+            ProductName = $productName
+            EditionId = $editionId
+            Build = $build
+            DisplayVersion = $displayVersion
+            IsServer = [bool]$isServer
+            IsLTSC = [bool](($productName -match 'LTSC|LTSB') -or ($editionId -match 'EnterpriseS|IoTEnterpriseS'))
+            BuildProfile = $buildProfile.Name
+            BuildNumber = $buildProfile.BuildNumber
+            SupportsWindowsAI = [bool]$buildProfile.SupportsWindowsAI
+            AllowTelemetryValue = if ($supportsDiagnosticOff) { 0 } else { 1 }
+            Summary = "$productName $displayVersion build $build edition $editionId"
+        }
+    } catch {
+        return [pscustomobject]@{
+            ProductName = 'Unknown Windows'
+            EditionId = 'Unknown'
+            Build = 'Unknown'
+            DisplayVersion = 'Unknown'
+            IsServer = $false
+            IsLTSC = $false
+            BuildProfile = 'Unknown Windows'
+            BuildNumber = 0
+            SupportsWindowsAI = $false
+            AllowTelemetryValue = 1
+            Summary = "Unknown Windows (host detection failed: $($_.Exception.Message))"
+        }
+    }
+}
+
+function Get-TelemetrySlayerAuditOperation {
+    param(
+        [Parameter(Mandatory = $true)]$Operation,
+        [Parameter(Mandatory = $true)]$HostProfile
+    )
+
+    $data = $Operation.Data
+    $expected = $data.Value
+    if ($expected -eq 'SkuGated0Or1') { $expected = $HostProfile.AllowTelemetryValue }
+    $actual = $null
+    $status = 'Error'
+    $detail = $null
+
+    try {
+        if ($Operation.Kind -eq 'Registry' -and $data.Path -match 'WindowsAI|WindowsCopilot|Policies\\Paint') {
+            if ($data.Path -match 'WindowsAI|WindowsCopilot' -and -not $HostProfile.SupportsWindowsAI) {
+                return [pscustomobject]@{ Kind = $Operation.Kind; Target = $Operation.Target; Expected = $expected; Actual = $null; Status = 'NotApplicable'; Detail = "Unsupported build profile: $($HostProfile.BuildProfile)" }
+            }
+        }
+
+        switch ($Operation.Kind) {
+            'Registry' {
+                if (-not (Test-Path -LiteralPath $data.Path)) {
+                    $status = 'Drift'
+                    $detail = 'Registry path is absent'
+                } else {
+                    $item = Get-ItemProperty -LiteralPath $data.Path -Name $data.Name -ErrorAction SilentlyContinue
+                    if ($null -eq $item -or -not ($item.PSObject.Properties.Name -contains $data.Name)) {
+                        $status = 'Drift'
+                        $detail = 'Registry value is absent'
+                    } else {
+                        $actual = $item.$($data.Name)
+                        $status = if ([string]$actual -eq [string]$expected) { 'Pass' } else { 'Drift' }
+                        $detail = if ($status -eq 'Pass') { 'Expected registry value is present' } else { 'Registry value differs from desired state' }
+                    }
+                }
+            }
+            'Service' {
+                $service = Get-Service -Name $data.Name -ErrorAction SilentlyContinue
+                if (-not $service) { return [pscustomobject]@{ Kind = $Operation.Kind; Target = $Operation.Target; Expected = 'Disabled'; Actual = $null; Status = 'NotApplicable'; Detail = 'Service is not installed' } }
+                $actual = [string]$service.StartType
+                $status = if ($actual -eq 'Disabled') { 'Pass' } else { 'Drift' }
+                $detail = 'Service startup state inspected'
+            }
+            'Task' {
+                $task = Get-ScheduledTask -TaskName $data.TaskName -TaskPath $data.TaskPath -ErrorAction SilentlyContinue
+                if (-not $task) { return [pscustomobject]@{ Kind = $Operation.Kind; Target = $Operation.Target; Expected = 'Disabled'; Actual = $null; Status = 'NotApplicable'; Detail = 'Scheduled task is not installed' } }
+                $actual = [string]$task.State
+                $status = if ($actual -eq 'Disabled') { 'Pass' } else { 'Drift' }
+                $detail = 'Scheduled task state inspected'
+            }
+            'Firewall' {
+                $rule = Get-NetFirewallRule -DisplayName $data.DisplayName -ErrorAction SilentlyContinue
+                $actual = if ($rule) { 'Present' } else { 'Absent' }
+                $status = if ($rule) { 'Pass' } else { 'Drift' }
+                $detail = 'Outbound firewall rule inspected'
+            }
+            'File' {
+                $exists = Test-Path -LiteralPath $data.Path
+                $length = if ($exists) { (Get-Item -LiteralPath $data.Path -ErrorAction Stop).Length } else { 0 }
+                $actual = if ($exists) { "Present ($length bytes)" } else { 'Absent' }
+                $status = if (-not $exists -or $length -eq 0) { 'Pass' } else { 'Drift' }
+                $detail = 'ETL file state inspected'
+            }
+            'Process' {
+                $process = Get-Process -Name $data.Name -ErrorAction SilentlyContinue
+                $actual = if ($process) { 'Present' } else { 'Absent' }
+                $status = if ($process) { 'Drift' } else { 'Pass' }
+                $detail = 'Process presence inspected'
+            }
+            default {
+                $status = 'NotApplicable'
+                $detail = "Audit not implemented for operation kind $($Operation.Kind)"
+            }
+        }
+    } catch {
+        $status = 'Error'
+        $detail = $_.Exception.Message
+    }
+
+    [pscustomobject]@{
+        Kind = $Operation.Kind
+        Target = $Operation.Target
+        Expected = $expected
+        Actual = $actual
+        Status = $status
+        Detail = $detail
+    }
+}
+
+function Get-TelemetrySlayerAudit {
+    $hostProfile = Get-TelemetrySlayerHostProfile
+    $actions = [System.Collections.Generic.List[object]]::new()
+    foreach ($action in (Get-TelemetrySlayerActionCatalog)) {
+        $operationResults = [System.Collections.Generic.List[object]]::new()
+        foreach ($operation in $action.Operations) {
+            [void]$operationResults.Add((Get-TelemetrySlayerAuditOperation -Operation $operation -HostProfile $hostProfile))
+        }
+        $statuses = @($operationResults | ForEach-Object { $_.Status })
+        $actionStatus = if ($statuses -contains 'Error') { 'Error' } elseif ($statuses -contains 'Drift') { 'Drift' } elseif (@($statuses | Where-Object { $_ -eq 'Pass' }).Count -eq 0) { 'NotApplicable' } else { 'Pass' }
+        [void]$actions.Add([pscustomobject]@{
+            StableId = $action.StableId
+            CheckBox = $action.CheckBox
+            Name = $action.Name
+            Category = $action.Category
+            Risk = $action.Risk
+            SourceUrl = $action.SourceUrl
+            Status = $actionStatus
+            Operations = @($operationResults)
+        })
+    }
+    $summary = [ordered]@{
+        Pass = @($actions | Where-Object Status -eq 'Pass').Count
+        Drift = @($actions | Where-Object Status -eq 'Drift').Count
+        NotApplicable = @($actions | Where-Object Status -eq 'NotApplicable').Count
+        Error = @($actions | Where-Object Status -eq 'Error').Count
+    }
+    [pscustomobject][ordered]@{
+        SchemaVersion = 1
+        ToolVersion = '1.6.0'
+        GeneratedAt = (Get-Date).ToString('o')
+        HostProfile = $hostProfile
+        Summary = $summary
+        Actions = @($actions)
+    }
+}
+
+function Compare-TelemetrySlayerAudits {
+    param(
+        [Parameter(Mandatory = $true)]$Baseline,
+        [Parameter(Mandatory = $true)]$Current
+    )
+
+    $baselineOperations = @{}
+    foreach ($action in @($Baseline.Actions)) {
+        $index = 0
+        foreach ($operation in @($action.Operations)) {
+            $index++
+            $baselineOperations["$($action.StableId)|$index"] = $operation
+        }
+    }
+    $changes = [System.Collections.Generic.List[object]]::new()
+    foreach ($action in @($Current.Actions)) {
+        $index = 0
+        foreach ($operation in @($action.Operations)) {
+            $index++
+            $key = "$($action.StableId)|$index"
+            $before = $baselineOperations[$key]
+            if (-not $before) { continue }
+            if ([string]$before.Status -ne [string]$operation.Status -or [string]$before.Actual -ne [string]$operation.Actual) {
+                [void]$changes.Add([pscustomobject]@{
+                    StableId = $action.StableId
+                    Action = $action.Name
+                    Target = $operation.Target
+                    BeforeStatus = $before.Status
+                    AfterStatus = $operation.Status
+                    BeforeActual = $before.Actual
+                    AfterActual = $operation.Actual
+                    Detail = $operation.Detail
+                })
+            }
+        }
+    }
+    [pscustomobject]@{
+        ComparedAt = (Get-Date).ToString('o')
+        BaselineGeneratedAt = $Baseline.GeneratedAt
+        CurrentGeneratedAt = $Current.GeneratedAt
+        ChangedCount = $changes.Count
+        DriftCount = @($changes | Where-Object { $_.AfterStatus -eq 'Drift' -or $_.AfterStatus -eq 'Error' }).Count
+        Changes = @($changes)
     }
 }
 
@@ -877,6 +1093,30 @@ if ($ExportPolicyPath) {
         exit 0
     } catch {
         Write-Error "Policy bundle export failed: $($_.Exception.Message)"
+        exit 1
+    }
+}
+
+if ($AuditPath -or $CompareAuditPath) {
+    try {
+        $audit = Get-TelemetrySlayerAudit
+        if ($AuditPath) {
+            $auditDirectory = Split-Path -Parent $AuditPath
+            if ($auditDirectory -and -not (Test-Path -LiteralPath $auditDirectory)) {
+                New-Item -Path $auditDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
+            }
+            $audit | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $AuditPath -Encoding UTF8 -ErrorAction Stop
+            Write-Output ("Audit written to {0}: Pass={1}, Drift={2}, N/A={3}, Error={4}" -f $AuditPath, $audit.Summary.Pass, $audit.Summary.Drift, $audit.Summary.NotApplicable, $audit.Summary.Error)
+        }
+        if ($CompareAuditPath) {
+            $baseline = Get-Content -LiteralPath $CompareAuditPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            $comparison = Compare-TelemetrySlayerAudits -Baseline $baseline -Current $audit
+            Write-Output ("Audit comparison: {0} changed, {1} drifted or errored." -f $comparison.ChangedCount, $comparison.DriftCount)
+            if ($comparison.DriftCount -gt 0) { exit 2 }
+        }
+        exit 0
+    } catch {
+        Write-Error "TelemetrySlayer audit failed: $($_.Exception.Message)"
         exit 1
     }
 }

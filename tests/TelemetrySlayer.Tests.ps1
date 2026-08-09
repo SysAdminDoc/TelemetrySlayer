@@ -198,6 +198,30 @@ Describe 'TelemetrySlayer action catalog' {
         $whatIf.WhatIf | Should -BeTrue
     }
 
+    It 'detects post-baseline policy drift' {
+        $baseline = [pscustomobject]@{
+            GeneratedAt = '2026-08-09T03:00:00Z'
+            Actions = @([pscustomobject]@{
+                StableId = 'TelemetrySlayer.Sample'
+                Name = 'Sample'
+                Operations = @([pscustomobject]@{ Status = 'Pass'; Actual = 0; Target = 'HKLM:\Sample\Value' })
+            })
+        }
+        $current = [pscustomobject]@{
+            GeneratedAt = '2026-08-16T03:00:00Z'
+            Actions = @([pscustomobject]@{
+                StableId = 'TelemetrySlayer.Sample'
+                Name = 'Sample'
+                Operations = @([pscustomobject]@{ Status = 'Drift'; Actual = 1; Target = 'HKLM:\Sample\Value'; Detail = 'Registry value differs' })
+            })
+        }
+        $comparison = Compare-TelemetrySlayerAudits -Baseline $baseline -Current $current
+        $comparison.ChangedCount | Should -Be 1
+        $comparison.DriftCount | Should -Be 1
+        $comparison.Changes[0].BeforeStatus | Should -Be 'Pass'
+        $comparison.Changes[0].AfterStatus | Should -Be 'Drift'
+    }
+
     It 'exposes preset profiles covering every catalog checkbox' {
         foreach ($presetName in @('Balanced', 'Minimal', 'Paranoid')) {
             $preset = Get-TelemetrySlayerPreset $presetName

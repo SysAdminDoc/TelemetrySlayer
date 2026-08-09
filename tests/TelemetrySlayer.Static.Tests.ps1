@@ -69,6 +69,15 @@ Describe 'TelemetrySlayer static safety checks' {
         $script:ScriptText | Should -Match 'WindowStyle Hidden'
     }
 
+    It 'supports read-only audit baselines and drift comparisons' {
+        $script:ScriptText | Should -Match '\[string\]\$AuditPath'
+        $script:ScriptText | Should -Match '\[string\]\$CompareAuditPath'
+        $script:ScriptText | Should -Match 'function Get-TelemetrySlayerAudit'
+        $script:ScriptText | Should -Match 'function Compare-TelemetrySlayerAudits'
+        $script:ScriptText | Should -Match "Status = 'NotApplicable'"
+        $script:ScriptText | Should -Match 'exit 2'
+    }
+
     It 'writes post-apply verification ledger' {
         $script:ScriptText | Should -Match 'function AddActionResult'
         $script:ScriptText | Should -Match 'function SaveRunResults'
