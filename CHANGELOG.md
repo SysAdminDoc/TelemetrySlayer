@@ -20,6 +20,8 @@ All notable changes to TelemetrySlayer will be documented in this file.
 - Added Windows build profiles and opt-in Windows 11 AI/Recall policy coverage with unsupported-build and SKU-aware handling.
 - Added stable action IDs, policy paths, supported-build/SKU metadata, and legacy labels for obsolete Edge policy fallbacks.
 - Added metadata-driven risk badges, rich action search, an exact command preview, transcript history browsing, and a Windows privacy/feedback viewer shortcut.
+- Added catalog-derived policy bundle export (`-ExportPolicyPath`) with ADMX/ADML, machine/user `.reg`, CSV, and JSON artifacts.
+- Added timestamped paired `restore-registry.reg` files to preflight backup manifests.
 
 ## [v1.5.0] - 2026-06-28
 

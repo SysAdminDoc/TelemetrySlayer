@@ -49,6 +49,16 @@ Describe 'TelemetrySlayer static safety checks' {
         $script:ScriptText | Should -Match 'btnOpenLogs'
     }
 
+    It 'supports catalog-derived policy export and paired registry recovery' {
+        $script:ScriptText | Should -Match '\[string\]\$ExportPolicyPath'
+        $script:ScriptText | Should -Match 'function Export-TelemetrySlayerPolicyBundle'
+        $script:ScriptText | Should -Match 'TelemetrySlayer\.admx'
+        $script:ScriptText | Should -Match 'policy\.csv'
+        $script:ScriptText | Should -Match 'function SavePairedRegistryRestore'
+        $script:ScriptText | Should -Match 'restore-registry\.reg'
+        $script:ScriptText | Should -Match 'PairedRegistryRestore'
+    }
+
     It 'writes post-apply verification ledger' {
         $script:ScriptText | Should -Match 'function AddActionResult'
         $script:ScriptText | Should -Match 'function SaveRunResults'

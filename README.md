@@ -108,6 +108,7 @@ The script auto-elevates to Administrator. No dependencies, no modules, no insta
 |---------|-------------|---------|
 | Exact Undo Snapshot | Apply records prior registry value/type/absence, service startup/status, exact scheduled-task IDs, firewall rule baselines, IFEO, and autologger state under `%ProgramData%\TelemetrySlayer\State` | On |
 | Preflight Backup Bundle | Apply writes `%ProgramData%\TelemetrySlayer\Backups\backup-<timestamp>` with a manifest, restore snapshot copy, registry exports for managed keys, and restore-point attempt status before changing the machine | On |
+| Paired Registry Restore | Each backup also contains `restore-registry.reg`, a combined pre-apply registry export keyed to the backup timestamp; exact absent-value restoration remains in the JSON snapshot | On |
 | Timeout-Safe Service Control | Service stop/start/startup changes run through `sc.exe` with timeout, retry/backoff, exit-code logging, and visible failure output | On |
 | SKU-Aware Diagnostic Data | Scan detects product name, build, edition, LTSC, and Server status; the AllowTelemetry toggle text and tooltip show the applied value and reason | On |
 
@@ -252,6 +253,16 @@ powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1 -Silent -LogPath C:
 ```
 
 Exit codes: `0` = success, `1` = one or more actions failed. Logs are written to `%ProgramData%\TelemetrySlayer\Logs\` by default.
+
+### Policy Bundle Export
+
+Export catalog-derived machine/user policy artifacts without applying them:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1 -ExportPolicyPath .\TelemetrySlayer-PolicyBundle
+```
+
+The bundle contains `TelemetrySlayer.admx`, `en-US\TelemetrySlayer.adml`, machine/user `.reg` files, `policy.csv`, and `policy.json`. The JSON/CSV files retain source URLs, supported build/SKU gates, legacy-policy labels, and dynamic SKU-gated values that are intentionally omitted from generic `.reg`/ADMX files.
 
 ### NinjaOne
 

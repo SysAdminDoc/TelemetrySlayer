@@ -171,6 +171,20 @@ Describe 'TelemetrySlayer action catalog' {
         (Get-TelemetrySlayerPreview @{}) | Should -Be 'No actions selected.'
     }
 
+    It 'exports deployable policy metadata and ADMX resources' {
+        $exportPath = Join-Path $TestDrive 'PolicyBundle'
+        $result = Export-TelemetrySlayerPolicyBundle -Path $exportPath
+        $result.RegistryEntries | Should -BeGreaterThan 0
+        $result.AdmxPolicies | Should -BeGreaterThan 0
+        foreach ($file in @('machine.reg', 'user.reg', 'policy.csv', 'policy.json', 'TelemetrySlayer.admx', 'en-US\TelemetrySlayer.adml')) {
+            Test-Path -LiteralPath (Join-Path $exportPath $file) | Should -BeTrue
+        }
+        $policyJson = Get-Content -LiteralPath (Join-Path $exportPath 'policy.json') -Raw | ConvertFrom-Json
+        @($policyJson.DynamicValues).Count | Should -BeGreaterThan 0
+        ([xml](Get-Content -LiteralPath (Join-Path $exportPath 'TelemetrySlayer.admx') -Raw)).policyDefinitions | Should -Not -BeNullOrEmpty
+        Get-Content -LiteralPath (Join-Path $exportPath 'machine.reg') -Raw | Should -Match 'Windows Registry Editor Version 5.00'
+    }
+
     It 'exposes preset profiles covering every catalog checkbox' {
         foreach ($presetName in @('Balanced', 'Minimal', 'Paranoid')) {
             $preset = Get-TelemetrySlayerPreset $presetName

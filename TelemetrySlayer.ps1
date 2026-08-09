@@ -9,7 +9,8 @@ param(
     [string]$Preset = 'Balanced',
     [string]$ConfigPath,
     [switch]$WhatIf,
-    [string]$LogPath
+    [string]$LogPath,
+    [string]$ExportPolicyPath
 )
 
 function Get-TelemetrySlayerOperation {
@@ -505,6 +506,189 @@ function Get-TelemetrySlayerPreview {
     return ($lines -join [Environment]::NewLine)
 }
 
+function ConvertTo-TelemetrySlayerNativeRegistryPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if ($Path -match '^HKLM:\\(.+)$') { return "HKLM\$($Matches[1])" }
+    if ($Path -match '^HKCU:\\(.+)$') { return "HKCU\$($Matches[1])" }
+    return $null
+}
+
+function ConvertTo-TelemetrySlayerXmlText {
+    param([AllowNull()][object]$Value)
+    if ($null -eq $Value) { return '' }
+    return [System.Security.SecurityElement]::Escape([string]$Value)
+}
+
+function ConvertTo-TelemetrySlayerRegString {
+    param([AllowNull()][object]$Value)
+    if ($null -eq $Value) { return '' }
+    return (($Value.ToString()) -replace '\\', '\\\\' -replace '"', '\\"')
+}
+
+function Get-TelemetrySlayerRegistryEntries {
+    $entries = [System.Collections.Generic.List[object]]::new()
+    foreach ($action in (Get-TelemetrySlayerActionCatalog)) {
+        $operationIndex = 0
+        foreach ($operation in $action.Operations) {
+            $operationIndex++
+            if ($operation.Kind -ne 'Registry') { continue }
+            $nativePath = ConvertTo-TelemetrySlayerNativeRegistryPath $operation.Data.Path
+            if (-not $nativePath) { continue }
+            $parts = $nativePath -split '\\', 2
+            $entries.Add([pscustomobject]@{
+                StableId = $action.StableId
+                Action = $action.Name
+                CheckBox = $action.CheckBox
+                Category = $action.Category
+                Risk = $action.Risk
+                SourceUrl = $action.SourceUrl
+                SupportedBuilds = $operation.Data.SupportedBuilds
+                SupportedSKUs = $operation.Data.SupportedSKUs
+                Legacy = [bool]$operation.Data.Legacy
+                Hive = $parts[0]
+                KeyPath = if ($parts.Count -gt 1) { $parts[1] } else { '' }
+                ValueName = $operation.Data.Name
+                Value = $operation.Data.Value
+                Type = $operation.Data.Type
+                DynamicValue = [bool]($operation.Data.Value -eq 'SkuGated0Or1')
+                OperationIndex = $operationIndex
+            })
+        }
+    }
+    return @($entries)
+}
+
+function Get-TelemetrySlayerRegFileContent {
+    param([Parameter(Mandatory = $true)][object[]]$Entries)
+
+    $lines = [System.Collections.Generic.List[string]]::new()
+    [void]$lines.Add('Windows Registry Editor Version 5.00')
+    [void]$lines.Add('')
+    $groups = [ordered]@{}
+    foreach ($entry in @($Entries | Where-Object { -not $_.DynamicValue })) {
+        $groupName = "$($entry.Hive)\$($entry.KeyPath)"
+        if (-not $groups.Contains($groupName)) {
+            $groups[$groupName] = [System.Collections.Generic.List[object]]::new()
+        }
+        [void]$groups[$groupName].Add($entry)
+    }
+
+    foreach ($groupName in $groups.Keys) {
+        [void]$lines.Add("[$groupName]")
+        foreach ($entry in $groups[$groupName]) {
+            $name = ConvertTo-TelemetrySlayerRegString $entry.ValueName
+            if ($entry.Type -eq 'DWord') {
+                $number = 0
+                if (-not [int]::TryParse([string]$entry.Value, [ref]$number)) { continue }
+                [void]$lines.Add(('"{0}"=dword:{1}' -f $name, $number.ToString('x8')))
+            } elseif ($entry.Type -eq 'String') {
+                [void]$lines.Add(('"{0}"="{1}"' -f $name, (ConvertTo-TelemetrySlayerRegString $entry.Value)))
+            } else {
+                [void]$lines.Add(('; Unsupported registry type {0} for {1}' -f $entry.Type, $entry.ValueName))
+            }
+        }
+        [void]$lines.Add('')
+    }
+    return ($lines -join [Environment]::NewLine)
+}
+
+function Export-TelemetrySlayerPolicyBundle {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (Test-Path -LiteralPath $Path -PathType Leaf) {
+        throw "Policy export path is a file: $Path"
+    }
+    New-Item -Path $Path -ItemType Directory -Force -ErrorAction Stop | Out-Null
+
+    $catalog = @(Get-TelemetrySlayerActionCatalog)
+    $registryEntries = @(Get-TelemetrySlayerRegistryEntries)
+    $machineEntries = @($registryEntries | Where-Object Hive -eq 'HKLM')
+    $userEntries = @($registryEntries | Where-Object Hive -eq 'HKCU')
+    $utf8 = [System.Text.UTF8Encoding]::new($false)
+
+    [System.IO.File]::WriteAllText((Join-Path $Path 'machine.reg'), (Get-TelemetrySlayerRegFileContent $machineEntries), $utf8)
+    [System.IO.File]::WriteAllText((Join-Path $Path 'user.reg'), (Get-TelemetrySlayerRegFileContent $userEntries), $utf8)
+
+    $csvPath = Join-Path $Path 'policy.csv'
+    $registryEntries | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
+
+    $admxLines = [System.Collections.Generic.List[string]]::new()
+    $admlLines = [System.Collections.Generic.List[string]]::new()
+    [void]$admxLines.Add('<?xml version="1.0" encoding="utf-8"?>')
+    [void]$admxLines.Add('<policyDefinitions revision="1.0" schemaVersion="1.0" xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">')
+    [void]$admxLines.Add('  <policyNamespaces>')
+    [void]$admxLines.Add('    <target namespace="TelemetrySlayer.Policies" prefix="telemetryslayer" />')
+    [void]$admxLines.Add('  </policyNamespaces>')
+    [void]$admxLines.Add('  <resources minRequiredRevision="1.0" />')
+    [void]$admxLines.Add('  <categories>')
+    [void]$admxLines.Add('    <category name="TelemetrySlayer_Category" displayName="$(string.TelemetrySlayer_Category)" />')
+    [void]$admxLines.Add('  </categories>')
+    [void]$admxLines.Add('  <policies>')
+
+    [void]$admlLines.Add('<?xml version="1.0" encoding="utf-8"?>')
+    [void]$admlLines.Add('<policyDefinitionResources revision="1.0" schemaVersion="1.0" xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">')
+    [void]$admlLines.Add('  <displayName>TelemetrySlayer policy resources</displayName>')
+    [void]$admlLines.Add('  <description>TelemetrySlayer catalog-derived privacy policy definitions.</description>')
+    [void]$admlLines.Add('  <resources>')
+    [void]$admlLines.Add('    <stringTable>')
+    [void]$admlLines.Add('      <string id="TelemetrySlayer_Category">TelemetrySlayer</string>')
+
+    $admxPolicyCount = 0
+    foreach ($entry in $registryEntries) {
+        if ($entry.DynamicValue) { continue }
+        if ($entry.Type -notin @('DWord', 'String')) { continue }
+        $admxPolicyCount++
+        $policyName = "TelemetrySlayer_$($entry.StableId -replace '[^A-Za-z0-9_]', '_')_$($entry.OperationIndex)"
+        $displayId = "${policyName}_Display"
+        $explainId = "${policyName}_Explain"
+        $displayText = ConvertTo-TelemetrySlayerXmlText "$($entry.Action) - $($entry.ValueName)"
+        $explainText = ConvertTo-TelemetrySlayerXmlText "Generated from $($entry.StableId). Supported builds: $($entry.SupportedBuilds). Supported SKUs: $($entry.SupportedSKUs). Source: $($entry.SourceUrl)."
+        [void]$admlLines.Add(('      <string id="{0}">{1}</string>' -f $displayId, $displayText))
+        [void]$admlLines.Add(('      <string id="{0}">{1}</string>' -f $explainId, $explainText))
+        $class = if ($entry.Hive -eq 'HKLM') { 'Machine' } else { 'User' }
+        $keyText = ConvertTo-TelemetrySlayerXmlText $entry.KeyPath
+        $valueNameText = ConvertTo-TelemetrySlayerXmlText $entry.ValueName
+        [void]$admxLines.Add(('    <policy name="{0}" class="{1}" displayName="$(string.{2})" explainText="$(string.{3})" keyName="{4}" valueName="{5}">' -f $policyName, $class, $displayId, $explainId, $keyText, $valueNameText))
+        [void]$admxLines.Add('      <parentCategory ref="TelemetrySlayer_Category" />')
+        [void]$admxLines.Add('      <enabledValue>')
+        if ($entry.Type -eq 'DWord') {
+            $number = 0
+            if ([int]::TryParse([string]$entry.Value, [ref]$number)) {
+                [void]$admxLines.Add(('        <decimal value="{0}" />' -f $number))
+            }
+        } else {
+            [void]$admxLines.Add(('        <string value="{0}" />' -f (ConvertTo-TelemetrySlayerXmlText $entry.Value)))
+        }
+        [void]$admxLines.Add('      </enabledValue>')
+        [void]$admxLines.Add('    </policy>')
+    }
+    [void]$admxLines.Add('  </policies>')
+    [void]$admxLines.Add('</policyDefinitions>')
+    [void]$admlLines.Add('    </stringTable>')
+    [void]$admlLines.Add('  </resources>')
+    [void]$admlLines.Add('</policyDefinitionResources>')
+
+    [System.IO.File]::WriteAllText((Join-Path $Path 'TelemetrySlayer.admx'), ($admxLines -join [Environment]::NewLine), $utf8)
+    $admlPath = Join-Path $Path 'en-US'
+    New-Item -Path $admlPath -ItemType Directory -Force -ErrorAction Stop | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $admlPath 'TelemetrySlayer.adml'), ($admlLines -join [Environment]::NewLine), $utf8)
+
+    $bundle = [ordered]@{
+        SchemaVersion = 1
+        ToolVersion = '1.6.0'
+        GeneratedAt = (Get-Date).ToString('o')
+        Description = 'Catalog-derived machine/user registry policy bundle for GPO, Intune, or offline review.'
+        Files = @('machine.reg', 'user.reg', 'policy.csv', 'policy.json', 'TelemetrySlayer.admx', 'en-US\TelemetrySlayer.adml')
+        DynamicValues = @($registryEntries | Where-Object DynamicValue | Select-Object StableId,Action,ValueName,SupportedBuilds,SupportedSKUs,SourceUrl)
+        RegistryEntries = $registryEntries
+        Actions = $catalog | Select-Object StableId,CheckBox,Name,Category,Risk,SourceUrl,PolicyPath,SupportedOS,SupportedBuilds,SupportedSKUs,UndoType,LegacyPolicies
+        AdmxPolicyCount = $admxPolicyCount
+    }
+    $json = $bundle | ConvertTo-Json -Depth 20
+    [System.IO.File]::WriteAllText((Join-Path $Path 'policy.json'), $json, $utf8)
+    return [pscustomobject]@{ Path = $Path; RegistryEntries = $registryEntries.Count; AdmxPolicies = $admxPolicyCount }
+}
+
 function Get-TelemetrySlayerFinalizeOperation {
     Get-TelemetrySlayerOperation -Kind 'Gpupdate' -Target 'gpupdate.exe /force' -Data @{
         Apply = 'RefreshPolicy'
@@ -609,6 +793,17 @@ function Get-TelemetrySlayerPreset {
 
 if ($ActionCatalogOnly) {
     return
+}
+
+if ($ExportPolicyPath) {
+    try {
+        $export = Export-TelemetrySlayerPolicyBundle -Path $ExportPolicyPath
+        Write-Output ("Policy bundle exported to {0} ({1} registry entries, {2} ADMX policies)." -f $export.Path, $export.RegistryEntries, $export.AdmxPolicies)
+        exit 0
+    } catch {
+        Write-Error "Policy bundle export failed: $($_.Exception.Message)"
+        exit 1
+    }
 }
 
 # --- Silent mode ---
@@ -2075,6 +2270,7 @@ $btnApply.Add_Click({
             $registryBackupPath = Join-Path $backupPath 'registry'
             New-Item -Path $registryBackupPath -ItemType Directory -Force | Out-Null
             $restoreBackupPath = Join-Path $backupPath 'restore-snapshot.json'
+            $pairedRegistryRestorePath = Join-Path $backupPath 'restore-registry.reg'
             $manifestPath = Join-Path $backupPath 'manifest.json'
         } catch {
             Log "  FAIL recovery workspace initialization - $($_.Exception.Message)"
@@ -2090,6 +2286,12 @@ $btnApply.Add_Click({
             BackupPath = $backupPath
             RestoreSnapshotPath = $restorePath
             RestoreSnapshotBackupPath = $restoreBackupPath
+            PairedRegistryRestorePath = $pairedRegistryRestorePath
+            PairedRegistryRestore = [ordered]@{
+                Status = 'Pending'
+                ExportCount = 0
+                Message = $null
+            }
             RegistryExports = @()
             RestorePoint = [ordered]@{
                 Attempted = $false
@@ -2224,6 +2426,34 @@ $btnApply.Add_Click({
             }
         }
 
+        function SavePairedRegistryRestore {
+            try {
+                $lines = [System.Collections.Generic.List[string]]::new()
+                [void]$lines.Add('Windows Registry Editor Version 5.00')
+                [void]$lines.Add('')
+                $exports = @(Get-ChildItem -LiteralPath $registryBackupPath -Filter '*.reg' -File -ErrorAction SilentlyContinue | Sort-Object Name)
+                foreach ($export in $exports) {
+                    [void]$lines.Add('; TelemetrySlayer pre-apply export: ' + $export.Name)
+                    foreach ($line in @(Get-Content -LiteralPath $export.FullName -ErrorAction Stop)) {
+                        if ($line -match '^Windows Registry Editor Version') { continue }
+                        [void]$lines.Add($line)
+                    }
+                    [void]$lines.Add('')
+                }
+                [System.IO.File]::WriteAllLines($pairedRegistryRestorePath, $lines, [System.Text.UTF8Encoding]::new($false))
+                $backupManifest.PairedRegistryRestore.Status = 'Written'
+                $backupManifest.PairedRegistryRestore.ExportCount = $exports.Count
+                $backupManifest.PairedRegistryRestore.Message = 'Combined pre-apply registry exports; exact absent-value restoration remains in restore-snapshot.json.'
+                Log "  Paired registry restore: $pairedRegistryRestorePath"
+                return $true
+            } catch {
+                $backupManifest.PairedRegistryRestore.Status = 'Failed'
+                $backupManifest.PairedRegistryRestore.Message = $_.Exception.Message
+                Log "  WARN paired registry restore failed - $($_.Exception.Message)"
+                return $false
+            }
+        }
+
         function TryCreateRestorePoint {
             $backupManifest.RestorePoint.Attempted = $true
             try {
@@ -2307,6 +2537,8 @@ $btnApply.Add_Click({
             foreach ($path in $registryTargets) {
                 ExportRegistryPath $path
             }
+
+            SavePairedRegistryRestore | Out-Null
 
             if (-not (SaveBackupManifest)) {
                 return $false
