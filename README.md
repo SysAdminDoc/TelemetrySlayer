@@ -111,6 +111,13 @@ The script auto-elevates to Administrator. No dependencies, no modules, no insta
 | Timeout-Safe Service Control | Service stop/start/startup changes run through `sc.exe` with timeout, retry/backoff, exit-code logging, and visible failure output | On |
 | SKU-Aware Diagnostic Data | Scan detects product name, build, edition, LTSC, and Server status; the AllowTelemetry toggle text and tooltip show the applied value and reason | On |
 
+### Operator UX
+
+- Search across action names, descriptions, policy paths, service/task targets, source metadata, and stable IDs.
+- Preview the selected registry, service, task, firewall, file, process, and policy-refresh commands before Apply.
+- Review current and historical transcript files in the in-app History tab.
+- Open Windows privacy/feedback settings through the Diagnostic Data Viewer toolbar action.
+
 ### Office Telemetry
 
 | Feature | Description | Default |

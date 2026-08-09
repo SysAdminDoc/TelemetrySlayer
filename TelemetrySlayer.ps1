@@ -437,6 +437,74 @@ function Get-TelemetrySlayerActionCatalog {
     )
 }
 
+function ConvertTo-TelemetrySlayerPreviewLiteral {
+    param([AllowNull()][object]$Value)
+    if ($null -eq $Value) { return '$null' }
+    return "'$(($Value.ToString()) -replace "'", "''")'"
+}
+
+function Get-TelemetrySlayerOperationPreview {
+    param([Parameter(Mandatory = $true)]$Operation)
+
+    $data = $Operation.Data
+    switch ($Operation.Kind) {
+        'Registry' {
+            $value = if ($data.Value -eq 'SkuGated0Or1') { '<SKU-gated 0 or 1>' } else { $data.Value }
+            $line = "New-ItemProperty -LiteralPath $(ConvertTo-TelemetrySlayerPreviewLiteral $data.Path) -Name $(ConvertTo-TelemetrySlayerPreviewLiteral $data.Name) -Value $(ConvertTo-TelemetrySlayerPreviewLiteral $value) -PropertyType $(ConvertTo-TelemetrySlayerPreviewLiteral $data.Type) -Force"
+            if ($data.SupportedSKUs -and $data.SupportedSKUs -ne 'All supported SKUs') {
+                $line += "  # Supported SKUs: $($data.SupportedSKUs)"
+            }
+            if ($data.SupportedBuilds -and $data.SupportedBuilds -ne 'All supported builds') {
+                $line += "  # Supported builds: $($data.SupportedBuilds)"
+            }
+            if ($data.Legacy) { $line += '  # Legacy compatibility fallback' }
+            return $line
+        }
+        'Service' {
+            return "sc.exe stop $(ConvertTo-TelemetrySlayerPreviewLiteral $data.Name); sc.exe config $(ConvertTo-TelemetrySlayerPreviewLiteral $data.Name) start= disabled"
+        }
+        'Task' {
+            return "Disable-ScheduledTask -TaskName $(ConvertTo-TelemetrySlayerPreviewLiteral $data.TaskName) -TaskPath $(ConvertTo-TelemetrySlayerPreviewLiteral $data.TaskPath)"
+        }
+        'Firewall' {
+            $line = "New-NetFirewallRule -DisplayName $(ConvertTo-TelemetrySlayerPreviewLiteral $data.DisplayName) -Direction Outbound -Action Block -Enabled True -Group 'TelemetrySlayer'"
+            if ($data.Program) { $line += " -Program $(ConvertTo-TelemetrySlayerPreviewLiteral $data.Program)" }
+            if ($data.Service) { $line += " -Service $(ConvertTo-TelemetrySlayerPreviewLiteral $data.Service)" }
+            return $line
+        }
+        'File' {
+            return "logman stop 'AutoLogger-Diagtrack-Listener' -ets; Clear-Content -LiteralPath $(ConvertTo-TelemetrySlayerPreviewLiteral $data.Path)"
+        }
+        'Process' {
+            return "Stop-Process -Name $(ConvertTo-TelemetrySlayerPreviewLiteral $data.Name) -Force"
+        }
+        'Gpupdate' {
+            return 'gpupdate.exe /force'
+        }
+        default {
+            return "# Unsupported preview operation: $($Operation.Kind) $($Operation.Target)"
+        }
+    }
+}
+
+function Get-TelemetrySlayerPreview {
+    param([hashtable]$Options)
+
+    $lines = [System.Collections.Generic.List[string]]::new()
+    foreach ($action in (Get-TelemetrySlayerActionCatalog)) {
+        if (-not $Options -or $Options[$action.CheckBox] -ne $true) { continue }
+        [void]$lines.Add("# $($action.Name) [$($action.Risk)] - $($action.StableId)")
+        foreach ($operation in $action.Operations) {
+            [void]$lines.Add((Get-TelemetrySlayerOperationPreview $operation))
+        }
+    }
+    if ($lines.Count -eq 0) {
+        return 'No actions selected.'
+    }
+    [void]$lines.Add('gpupdate.exe /force  # final policy refresh')
+    return ($lines -join [Environment]::NewLine)
+}
+
 function Get-TelemetrySlayerFinalizeOperation {
     Get-TelemetrySlayerOperation -Kind 'Gpupdate' -Target 'gpupdate.exe /force' -Data @{
         Apply = 'RefreshPolicy'
@@ -932,15 +1000,25 @@ $xaml = @'
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="8,4">
             <StackPanel>
                 <!-- Select All / Deselect All -->
-                <StackPanel Orientation="Horizontal" Margin="4,6,0,2">
-                    <Button x:Name="btnSelectAll" Content="Select All" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0"/>
-                    <Button x:Name="btnDeselectAll" Content="Deselect All" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0"/>
-                    <Button x:Name="btnScan" Content="Re-Scan Status" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0"/>
-                    <Button x:Name="btnOpenLogs" Content="Open Log Folder" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0"/>
-                    <Button x:Name="btnOpenBackups" Content="Open Backups" FontSize="11" Padding="10,4" Background="#21262d"/>
-                </StackPanel>
+                 <StackPanel Orientation="Horizontal" Margin="4,6,0,2">
+                     <Button x:Name="btnSelectAll" Content="Select All" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0"/>
+                     <Button x:Name="btnDeselectAll" Content="Deselect All" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0"/>
+                     <Button x:Name="btnScan" Content="Re-Scan Status" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0"/>
+                     <Button x:Name="btnOpenLogs" Content="Open Log Folder" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0"/>
+                     <Button x:Name="btnOpenBackups" Content="Open Backups" FontSize="11" Padding="10,4" Background="#21262d"/>
+                 </StackPanel>
+                 <StackPanel Orientation="Horizontal" Margin="4,2,0,4">
+                     <TextBlock Text="Search toggles:" VerticalAlignment="Center" Foreground="#8b949e" FontSize="11" Margin="0,0,6,0"/>
+                     <TextBox x:Name="txtSearch" Width="260" Height="24" Background="#21262d" Foreground="#e0e0e0" BorderBrush="#30363d" Padding="5,2" ToolTip="Search action names, descriptions, policy paths, services, tasks, and source metadata." AutomationProperties.Name="Search telemetry actions"/>
+                     <Button x:Name="btnClearSearch" Content="Clear" FontSize="11" Padding="10,4" Background="#21262d" Margin="6,0,6,0"/>
+                     <Button x:Name="btnPreview" Content="Preview Commands" FontSize="11" Padding="10,4" Background="#21262d" Margin="0,0,6,0" ToolTip="Show the commands that Apply Selected will run for the current selection."/>
+                     <Button x:Name="btnOpenDiagnostics" Content="Diagnostic Data Viewer" FontSize="11" Padding="10,4" Background="#21262d" ToolTip="Open Windows Diagnostic Data Viewer or its privacy feedback settings."/>
+                 </StackPanel>
+                 <Expander x:Name="expPreview" Header="  Planned Apply Operations  " IsExpanded="False" Visibility="Collapsed" Margin="4,0,4,4" Foreground="#58a6ff">
+                     <TextBox x:Name="txtPreview" IsReadOnly="True" Background="#010409" Foreground="#c9d1d9" FontFamily="Consolas" FontSize="10" TextWrapping="NoWrap" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" BorderBrush="#30363d" Padding="8" Height="150"/>
+                 </Expander>
 
-                <!-- Services -->
+                 <!-- Services -->
                 <GroupBox Header="  Services  ">
                     <StackPanel>
                         <StackPanel Orientation="Horizontal">
@@ -1261,21 +1339,35 @@ $xaml = @'
             </StackPanel>
         </ScrollViewer>
 
-        <!-- Console Panel -->
-        <Border Grid.Row="2" Background="#010409" BorderBrush="#30363d" BorderThickness="0,1,0,0" Margin="0">
-            <DockPanel>
-                <Border DockPanel.Dock="Top" Background="#0d1117" Padding="10,5" BorderBrush="#30363d" BorderThickness="0,0,0,1">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text=">" Foreground="#4ade80" FontFamily="Consolas" FontWeight="Bold" FontSize="12" Margin="0,0,6,0"/>
-                        <TextBlock Text="Console Output" Foreground="#7ee787" FontFamily="Consolas" FontSize="11.5"/>
-                    </StackPanel>
-                </Border>
-                <TextBox x:Name="txtLog" IsReadOnly="True" Background="Transparent"
-                         Foreground="#4ade80" FontFamily="Consolas" FontSize="11"
-                         TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                         BorderThickness="0" Padding="10,6" Height="190"/>
-            </DockPanel>
-        </Border>
+         <!-- Console Panel -->
+         <Border Grid.Row="2" Background="#010409" BorderBrush="#30363d" BorderThickness="0,1,0,0" Margin="0">
+             <TabControl x:Name="logTabs" Background="#010409" BorderThickness="0" Height="190">
+                 <TabItem Header="Live Transcript">
+                     <DockPanel Background="#010409">
+                         <Border DockPanel.Dock="Top" Background="#0d1117" Padding="10,5" BorderBrush="#30363d" BorderThickness="0,0,0,1">
+                             <StackPanel Orientation="Horizontal">
+                                 <TextBlock Text=">" Foreground="#4ade80" FontFamily="Consolas" FontWeight="Bold" FontSize="12" Margin="0,0,6,0"/>
+                                 <TextBlock Text="Console Output" Foreground="#7ee787" FontFamily="Consolas" FontSize="11.5"/>
+                             </StackPanel>
+                         </Border>
+                         <TextBox x:Name="txtLog" IsReadOnly="True" Background="Transparent"
+                                  Foreground="#4ade80" FontFamily="Consolas" FontSize="11"
+                                  TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                  BorderThickness="0" Padding="10,6"/>
+                     </DockPanel>
+                 </TabItem>
+                 <TabItem Header="History">
+                     <Grid Background="#010409">
+                         <Grid.ColumnDefinitions>
+                             <ColumnDefinition Width="190"/>
+                             <ColumnDefinition Width="*"/>
+                         </Grid.ColumnDefinitions>
+                         <ListBox x:Name="lstHistory" Grid.Column="0" Background="#0d1117" Foreground="#c9d1d9" BorderBrush="#30363d" Margin="4" ToolTip="Select a prior transcript to inspect."/>
+                         <TextBox x:Name="txtHistory" Grid.Column="1" IsReadOnly="True" Background="Transparent" Foreground="#c9d1d9" FontFamily="Consolas" FontSize="10" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0" Padding="8"/>
+                     </Grid>
+                 </TabItem>
+             </TabControl>
+         </Border>
 
         <!-- Bottom Bar -->
         <Border Grid.Row="3" Background="#161b22" Padding="12,8" BorderBrush="#30363d" BorderThickness="0,1,0,0">
@@ -1313,6 +1405,14 @@ $btnDeselectAll = $window.FindName('btnDeselectAll')
 $btnScan      = $window.FindName('btnScan')
 $btnOpenLogs  = $window.FindName('btnOpenLogs')
 $btnOpenBackups = $window.FindName('btnOpenBackups')
+$txtSearch    = $window.FindName('txtSearch')
+$btnClearSearch = $window.FindName('btnClearSearch')
+$btnPreview   = $window.FindName('btnPreview')
+$expPreview   = $window.FindName('expPreview')
+$txtPreview   = $window.FindName('txtPreview')
+$btnOpenDiagnostics = $window.FindName('btnOpenDiagnostics')
+$lstHistory   = $window.FindName('lstHistory')
+$txtHistory   = $window.FindName('txtHistory')
 $chkAllowTelemetry = $window.FindName('chkAllowTelemetry')
 
 # --- Log file setup ---
@@ -1324,12 +1424,54 @@ try {
 } catch { }
 $script:currentLogPath = $null
 
+$script:actionCatalog = @(Get-TelemetrySlayerActionCatalog)
+$script:actionsByCheckBox = @{}
+foreach ($action in $script:actionCatalog) {
+    $script:actionsByCheckBox[$action.CheckBox] = $action
+}
+
+function Get-TelemetrySlayerActionTooltip($Action) {
+    $legacyText = if (@($Action.LegacyPolicies).Count -gt 0) {
+        "`nLegacy compatibility fallbacks: $(@($Action.LegacyPolicies) -join ', ')"
+    } else { '' }
+    return "$($Action.Description)`n`nRisk: $($Action.Risk)`nCategory: $($Action.Category)`nPolicy/target: $($Action.PolicyPath)`nSupported: $($Action.SupportedOS); $($Action.SupportedBuilds); $($Action.SupportedSKUs)`nUndo: $($Action.UndoType)`nSource: $($Action.SourceUrl)$legacyText"
+}
+
+function Add-TelemetrySlayerRiskBadges {
+    foreach ($action in $script:actionCatalog) {
+        $checkBox = $window.FindName($action.CheckBox)
+        if (-not $checkBox) { continue }
+        $checkBox.Tag = $action.StableId
+        $checkBox.ToolTip = Get-TelemetrySlayerActionTooltip $action
+        $row = $checkBox.Parent
+        if ($row -isnot [System.Windows.Controls.Panel]) { continue }
+        $badgeExists = @($row.Children | Where-Object { $_.Tag -eq "risk:$($action.CheckBox)" }).Count -gt 0
+        if ($badgeExists) { continue }
+
+        $badge = New-Object System.Windows.Controls.TextBlock
+        $badge.Tag = "risk:$($action.CheckBox)"
+        $badge.Text = $action.Risk.ToUpperInvariant()
+        $badge.FontSize = 9
+        $badge.FontWeight = [System.Windows.FontWeights]::Bold
+        $badge.VerticalAlignment = [System.Windows.VerticalAlignment]::Center
+        $badge.Margin = New-Object System.Windows.Thickness(6, 0, 0, 0)
+        $badge.Foreground = switch ($action.Risk) {
+            'Critical' { [System.Windows.Media.Brushes]::OrangeRed }
+            'High' { [System.Windows.Media.Brushes]::Orange }
+            'Medium' { [System.Windows.Media.Brushes]::Gold }
+            default { [System.Windows.Media.Brushes]::LightGreen }
+        }
+        [void]$row.Children.Add($badge)
+    }
+}
+
 function Start-LogFile {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $script:currentLogPath = Join-Path $script:logFolderPath "$stamp.log"
-    try {
-        Set-Content -LiteralPath $script:currentLogPath -Value "TelemetrySlayer v1.6.0 - $(Get-Date -Format 'o')" -Encoding UTF8 -ErrorAction Stop
-    } catch {
+     try {
+         Set-Content -LiteralPath $script:currentLogPath -Value "TelemetrySlayer v1.6.0 - $(Get-Date -Format 'o')" -Encoding UTF8 -ErrorAction Stop
+         RefreshLogHistory
+     } catch {
         $script:currentLogPath = $null
     }
 }
@@ -1379,8 +1521,83 @@ foreach ($name in $allIndicatorNames) {
     $allIndicators[$name] = $window.FindName($name)
 }
 
+Add-TelemetrySlayerRiskBadges
+
+function UpdateSearchFilter {
+    $term = if ($txtSearch) { $txtSearch.Text.Trim() } else { '' }
+    foreach ($checkBoxName in $allCheckboxNames) {
+        $checkBox = $window.FindName($checkBoxName)
+        if (-not $checkBox) { continue }
+        $row = $checkBox.Parent
+        if (-not $row) { continue }
+        $action = $script:actionsByCheckBox[$checkBoxName]
+        $haystack = @(
+            $action.Name
+            $action.Description
+            $action.PolicyPath
+            $action.Source
+            $action.SourceUrl
+            $action.StableId
+            $action.Category
+        ) -join ' '
+        $visible = (-not $term) -or ($haystack.IndexOf($term, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)
+        $row.Visibility = if ($visible) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed }
+    }
+}
+
+function Get-SelectedTelemetrySlayerOptions {
+    $opts = @{}
+    foreach ($checkBox in $allCheckboxes) {
+        $opts[$checkBox.Name] = ($checkBox.IsChecked -eq $true)
+    }
+    return $opts
+}
+
+function UpdatePreview {
+    if (-not $txtPreview) { return }
+    $txtPreview.Text = Get-TelemetrySlayerPreview (Get-SelectedTelemetrySlayerOptions)
+    $expPreview.Visibility = [System.Windows.Visibility]::Visible
+    $expPreview.IsExpanded = $true
+}
+
+$script:historyFiles = @{}
+function RefreshLogHistory {
+    if (-not $lstHistory) { return }
+    $lstHistory.Items.Clear()
+    $script:historyFiles = @{}
+    try {
+        foreach ($file in @(Get-ChildItem -LiteralPath $script:logFolderPath -Filter '*.log' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)) {
+            $entry = [pscustomobject]@{ Name = $file.Name; Path = $file.FullName }
+            $script:historyFiles[$entry.Name] = $entry.Path
+            [void]$lstHistory.Items.Add($entry)
+        }
+    } catch { }
+}
+
+$lstHistory.DisplayMemberPath = 'Name'
+$lstHistory.Add_SelectionChanged({
+    $entry = $lstHistory.SelectedItem
+    if ($entry -and $script:historyFiles.ContainsKey($entry.Name)) {
+        try {
+            $txtHistory.Text = Get-Content -LiteralPath $script:historyFiles[$entry.Name] -Raw -ErrorAction Stop
+        } catch {
+            $txtHistory.Text = "Unable to read transcript: $($_.Exception.Message)"
+        }
+    }
+})
+
 $btnSelectAll.Add_Click({ $allCheckboxes | ForEach-Object { $_.IsChecked = $true }; UpdateSelectedCount })
 $btnDeselectAll.Add_Click({ $allCheckboxes | ForEach-Object { $_.IsChecked = $false }; UpdateSelectedCount })
+$txtSearch.Add_TextChanged({ UpdateSearchFilter })
+$btnClearSearch.Add_Click({ $txtSearch.Clear(); UpdateSearchFilter })
+$btnPreview.Add_Click({ UpdatePreview })
+$btnOpenDiagnostics.Add_Click({
+    try {
+        Start-Process -FilePath 'ms-settings:privacy-feedback' -ErrorAction Stop
+    } catch {
+        [System.Windows.MessageBox]::Show("Windows Diagnostic Data Viewer could not be opened:`n$($_.Exception.Message)", 'TelemetrySlayer', 'OK', 'Information') | Out-Null
+    }
+})
 $btnClose.Add_Click({ $window.Close() })
 $btnOpenLogs.Add_Click({
     if (Test-Path -LiteralPath $script:logFolderPath) {
@@ -1397,6 +1614,7 @@ $btnOpenBackups.Add_Click({
         [System.Windows.MessageBox]::Show("Backup folder not found:`n$($script:backupFolderPath)", 'TelemetrySlayer', 'OK', 'Information') | Out-Null
     }
 })
+RefreshLogHistory
 
 # --- Update selected count in status bar ---
 function UpdateSelectedCount {
@@ -2751,9 +2969,10 @@ $btnApply.Add_Click({
                 $ps.Dispose()
                 $btnApply.IsEnabled = $true
                 $btnUndo.IsEnabled = $true
-                $txtStatus.Text = 'Complete - Restart recommended'
-                $txtStatus.Foreground = [System.Windows.Media.Brushes]::LightGreen
-                # Re-scan after apply
+                 $txtStatus.Text = 'Complete - Restart recommended'
+                 $txtStatus.Foreground = [System.Windows.Media.Brushes]::LightGreen
+                 RefreshLogHistory
+                 # Re-scan after apply
                 RunScan
                 return
             }
@@ -3154,9 +3373,10 @@ $btnUndo.Add_Click({
                 $ps.Dispose()
                 $btnApply.IsEnabled = $true
                 $btnUndo.IsEnabled = $true
-                $txtStatus.Text = 'Undo complete - Restart recommended'
-                $txtStatus.Foreground = [System.Windows.Media.Brushes]::LightGreen
-                # Re-scan after undo
+                 $txtStatus.Text = 'Undo complete - Restart recommended'
+                 $txtStatus.Foreground = [System.Windows.Media.Brushes]::LightGreen
+                 RefreshLogHistory
+                 # Re-scan after undo
                 RunScan
                 return
             }

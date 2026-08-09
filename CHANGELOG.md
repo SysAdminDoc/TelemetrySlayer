@@ -19,6 +19,7 @@ All notable changes to TelemetrySlayer will be documented in this file.
 - Added risk level and source provenance metadata to every action in the catalog.
 - Added Windows build profiles and opt-in Windows 11 AI/Recall policy coverage with unsupported-build and SKU-aware handling.
 - Added stable action IDs, policy paths, supported-build/SKU metadata, and legacy labels for obsolete Edge policy fallbacks.
+- Added metadata-driven risk badges, rich action search, an exact command preview, transcript history browsing, and a Windows privacy/feedback viewer shortcut.
 
 ## [v1.5.0] - 2026-06-28
 

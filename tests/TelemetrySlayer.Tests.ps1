@@ -162,6 +162,15 @@ Describe 'TelemetrySlayer action catalog' {
         (Get-TelemetrySlayerBuildProfile -Build '26100' -DisplayVersion '24H2' -ProductName 'Windows Server 2025' -EditionId 'ServerStandard' -IsServer $true).SupportsWindowsAI | Should -BeFalse
     }
 
+    It 'renders a command preview from selected catalog operations' {
+        $preview = Get-TelemetrySlayerPreview @{ chkDiagTrack = $true; chkAllowTelemetry = $true; chkWindowsAI = $true }
+        $preview | Should -Match 'sc.exe stop.*DiagTrack'
+        $preview | Should -Match 'New-ItemProperty.*AllowTelemetry'
+        $preview | Should -Match 'DisableAIDataAnalysis'
+        $preview | Should -Match 'gpupdate.exe /force'
+        (Get-TelemetrySlayerPreview @{}) | Should -Be 'No actions selected.'
+    }
+
     It 'exposes preset profiles covering every catalog checkbox' {
         foreach ($presetName in @('Balanced', 'Minimal', 'Paranoid')) {
             $preset = Get-TelemetrySlayerPreset $presetName

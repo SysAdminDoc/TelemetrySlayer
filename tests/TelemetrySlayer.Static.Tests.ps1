@@ -79,6 +79,15 @@ Describe 'TelemetrySlayer static safety checks' {
         $script:ScriptText | Should -Match 'indWindowsAI=N/A'
     }
 
+    It 'exposes searchable previews and transcript history in the GUI' {
+        $script:ScriptText | Should -Match 'x:Name="txtSearch"'
+        $script:ScriptText | Should -Match 'x:Name="btnPreview"'
+        $script:ScriptText | Should -Match 'x:Name="lstHistory"'
+        $script:ScriptText | Should -Match 'x:Name="txtHistory"'
+        $script:ScriptText | Should -Match 'ms-settings:privacy-feedback'
+        $script:ScriptText | Should -Match 'Get-TelemetrySlayerPreview'
+    }
+
     It 'restores undo state from the saved snapshot instead of broad defaults' {
         $script:ScriptText | Should -Match 'ConvertFrom-Json'
         $script:ScriptText | Should -Match 'function RestoreSvc'

@@ -14,10 +14,6 @@ Forward-looking plans for TelemetrySlayer — a single-file PowerShell WPF tool 
 - Rollback bundle — every apply writes a paired `.reg` restore file keyed by timestamp
 
 ### UX
-- Grouped categories (Services, Tasks, Registry, WMI, Firewall) with impact badges (Critical / High / Medium / Low)
-- Live preview of the exact commands that will run before Apply
-- Rich search across every toggle (name, description, registry path, service name)
-- Transcript viewer tab (live + history of past runs)
 
 ### Distribution
 - PS2EXE + Authenticode-signed release with VirusTotal clean report badge
