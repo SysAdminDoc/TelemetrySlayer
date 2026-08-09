@@ -2,6 +2,16 @@
 
 All notable changes to TelemetrySlayer will be documented in this file.
 
+## [v1.7.0] - 2026-08-09
+
+- Added Windows build profiles and opt-in Windows 11 AI/Recall policy coverage with unsupported-build and SKU-aware handling.
+- Added stable action IDs, policy paths, supported-build/SKU metadata, and legacy labels for obsolete Edge policy fallbacks.
+- Added metadata-driven risk badges, rich action search, an exact command preview, transcript history browsing, and a Windows privacy/feedback viewer shortcut.
+- Added catalog-derived policy bundle export (`-ExportPolicyPath`) with ADMX/ADML, machine/user `.reg`, CSV, and JSON artifacts.
+- Added timestamped paired `restore-registry.reg` files to preflight backup manifests.
+- Added hidden weekly re-apply task registration/removal with `-WhatIf` support and local JSON status reports.
+- Added read-only catalog audit baselines and post-update drift comparison via `-AuditPath`/`-CompareAuditPath`.
+
 ## [v1.6.0] - 2026-07-01
 
 - Expanded Edge policy coverage: added `UserFeedbackAllowed`, `HubsSidebarEnabled`, `CopilotPageContext`, `CopilotCDPPageContext`, and `DiscoverPageContextEnabled`.
@@ -17,13 +27,6 @@ All notable changes to TelemetrySlayer will be documented in this file.
 - Added visible focus rectangles and indicator tooltips for accessibility.
 - Added "Open Backups" button and backup retention pruning (keeps last 10).
 - Added risk level and source provenance metadata to every action in the catalog.
-- Added Windows build profiles and opt-in Windows 11 AI/Recall policy coverage with unsupported-build and SKU-aware handling.
-- Added stable action IDs, policy paths, supported-build/SKU metadata, and legacy labels for obsolete Edge policy fallbacks.
-- Added metadata-driven risk badges, rich action search, an exact command preview, transcript history browsing, and a Windows privacy/feedback viewer shortcut.
-- Added catalog-derived policy bundle export (`-ExportPolicyPath`) with ADMX/ADML, machine/user `.reg`, CSV, and JSON artifacts.
-- Added timestamped paired `restore-registry.reg` files to preflight backup manifests.
-- Added hidden weekly re-apply task registration/removal with `-WhatIf` support and local JSON status reports.
-- Added read-only catalog audit baselines and post-update drift comparison via `-AuditPath`/`-CompareAuditPath`.
 
 ## [v1.5.0] - 2026-06-28
 

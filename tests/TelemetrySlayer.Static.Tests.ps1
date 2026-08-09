@@ -73,7 +73,7 @@ Describe 'TelemetrySlayer static safety checks' {
         $script:ScriptText | Should -Match '\[string\]\$AuditPath'
         $script:ScriptText | Should -Match '\[string\]\$CompareAuditPath'
         $script:ScriptText | Should -Match 'function Get-TelemetrySlayerAudit'
-        $script:ScriptText | Should -Match 'function Compare-TelemetrySlayerAudits'
+        $script:ScriptText | Should -Match 'function Compare-TelemetrySlayerAudit'
         $script:ScriptText | Should -Match "Status = 'NotApplicable'"
         $script:ScriptText | Should -Match 'exit 2'
     }

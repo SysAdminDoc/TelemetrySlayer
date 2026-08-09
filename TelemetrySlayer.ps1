@@ -1,5 +1,5 @@
 ﻿#Requires -Version 5.1
-# TelemetrySlayer v1.6.0
+# TelemetrySlayer v1.7.0
 # Disables Microsoft telemetry, data collection, and related bloat on Windows 10/11
 
 param(
@@ -329,7 +329,7 @@ function Get-TelemetrySlayerAudit {
     }
     [pscustomobject][ordered]@{
         SchemaVersion = 1
-        ToolVersion = '1.6.0'
+        ToolVersion = '1.7.0'
         GeneratedAt = (Get-Date).ToString('o')
         HostProfile = $hostProfile
         Summary = $summary
@@ -337,7 +337,7 @@ function Get-TelemetrySlayerAudit {
     }
 }
 
-function Compare-TelemetrySlayerAudits {
+function Compare-TelemetrySlayerAudit {
     param(
         [Parameter(Mandatory = $true)]$Baseline,
         [Parameter(Mandatory = $true)]$Current
@@ -745,7 +745,7 @@ function ConvertTo-TelemetrySlayerRegString {
     return (($Value.ToString()) -replace '\\', '\\\\' -replace '"', '\\"')
 }
 
-function Get-TelemetrySlayerRegistryEntries {
+function Get-TelemetrySlayerRegistryEntry {
     $entries = [System.Collections.Generic.List[object]]::new()
     foreach ($action in (Get-TelemetrySlayerActionCatalog)) {
         $operationIndex = 0
@@ -821,7 +821,7 @@ function Export-TelemetrySlayerPolicyBundle {
     New-Item -Path $Path -ItemType Directory -Force -ErrorAction Stop | Out-Null
 
     $catalog = @(Get-TelemetrySlayerActionCatalog)
-    $registryEntries = @(Get-TelemetrySlayerRegistryEntries)
+    $registryEntries = @(Get-TelemetrySlayerRegistryEntry)
     $machineEntries = @($registryEntries | Where-Object Hive -eq 'HKLM')
     $userEntries = @($registryEntries | Where-Object Hive -eq 'HKCU')
     $utf8 = [System.Text.UTF8Encoding]::new($false)
@@ -895,7 +895,7 @@ function Export-TelemetrySlayerPolicyBundle {
 
     $bundle = [ordered]@{
         SchemaVersion = 1
-        ToolVersion = '1.6.0'
+        ToolVersion = '1.7.0'
         GeneratedAt = (Get-Date).ToString('o')
         Description = 'Catalog-derived machine/user registry policy bundle for GPO, Intune, or offline review.'
         Files = @('machine.reg', 'user.reg', 'policy.csv', 'policy.json', 'TelemetrySlayer.admx', 'en-US\TelemetrySlayer.adml')
@@ -947,19 +947,22 @@ function Get-TelemetrySlayerReapplyTaskDefinition {
 }
 
 function Register-TelemetrySlayerReapplyTask {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)][string]$ScriptPath,
         [ValidateSet('Balanced','Minimal','Paranoid')][string]$Preset = 'Balanced',
         [string]$LogPath,
         [string]$ReportPath,
-        [string]$TaskName = 'TelemetrySlayer Weekly Reapply',
-        [switch]$WhatIf
+        [string]$TaskName = 'TelemetrySlayer Weekly Reapply'
     )
 
     $definition = Get-TelemetrySlayerReapplyTaskDefinition -ScriptPath $ScriptPath -Preset $Preset -LogPath $LogPath -ReportPath $ReportPath -TaskName $TaskName
-    if ($WhatIf) {
+    if ($WhatIfPreference) {
         $definition | Add-Member -NotePropertyName WhatIf -NotePropertyValue $true -PassThru
         return
+    }
+    if (-not $PSCmdlet.ShouldProcess($definition.TaskName, 'Register weekly re-apply scheduled task')) {
+        return $definition
     }
 
     $action = New-ScheduledTaskAction -Execute $definition.Executable -Argument $definition.Arguments -WorkingDirectory (Split-Path -Parent $ScriptPath)
@@ -972,9 +975,13 @@ function Register-TelemetrySlayerReapplyTask {
 }
 
 function Unregister-TelemetrySlayerReapplyTask {
-    param([string]$TaskName = 'TelemetrySlayer Weekly Reapply', [switch]$WhatIf)
-    if ($WhatIf) {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param([string]$TaskName = 'TelemetrySlayer Weekly Reapply')
+    if ($WhatIfPreference) {
         return [pscustomobject]@{ TaskName = $TaskName; WhatIf = $true; Removed = $false }
+    }
+    if (-not $PSCmdlet.ShouldProcess($TaskName, 'Unregister weekly re-apply scheduled task')) {
+        return [pscustomobject]@{ TaskName = $TaskName; WhatIf = $false; Removed = $false }
     }
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop
     return [pscustomobject]@{ TaskName = $TaskName; WhatIf = $false; Removed = $true }
@@ -1110,7 +1117,7 @@ if ($AuditPath -or $CompareAuditPath) {
         }
         if ($CompareAuditPath) {
             $baseline = Get-Content -LiteralPath $CompareAuditPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-            $comparison = Compare-TelemetrySlayerAudits -Baseline $baseline -Current $audit
+            $comparison = Compare-TelemetrySlayerAudit -Baseline $baseline -Current $audit
             Write-Output ("Audit comparison: {0} changed, {1} drifted or errored." -f $comparison.ChangedCount, $comparison.DriftCount)
             if ($comparison.DriftCount -gt 0) { exit 2 }
         }
@@ -1202,7 +1209,7 @@ if ($Silent) {
             }
             $report = [ordered]@{
                 SchemaVersion = 1
-                ToolVersion = '1.6.0'
+                ToolVersion = '1.7.0'
                 Mode = 'Silent'
                 Preset = $Preset
                 WhatIf = [bool]$WhatIf
@@ -1295,7 +1302,7 @@ if ($Silent) {
     }
 
     $script:silentFailed = 0
-    SilentLog "TelemetrySlayer v1.6.0 - Silent mode - Preset: $Preset"
+    SilentLog "TelemetrySlayer v1.7.0 - Silent mode - Preset: $Preset"
     if ($WhatIf) { SilentLog "DRY RUN - no changes will be made" }
     SilentLog "Log: $silentLogPath"
 
@@ -1500,7 +1507,7 @@ Add-Type -Name Win -Namespace Native -MemberDefinition @'
 $xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="TelemetrySlayer v1.6.0" Width="820" Height="750"
+        Title="TelemetrySlayer v1.7.0" Width="820" Height="750"
         WindowStartupLocation="CenterScreen" Background="#0d1117"
         ResizeMode="CanResizeWithGrip" MinWidth="750" MinHeight="600">
     <Window.Resources>
@@ -2010,7 +2017,7 @@ function Get-TelemetrySlayerActionTooltip($Action) {
     return "$($Action.Description)`n`nRisk: $($Action.Risk)`nCategory: $($Action.Category)`nPolicy/target: $($Action.PolicyPath)`nSupported: $($Action.SupportedOS); $($Action.SupportedBuilds); $($Action.SupportedSKUs)`nUndo: $($Action.UndoType)`nSource: $($Action.SourceUrl)$legacyText"
 }
 
-function Add-TelemetrySlayerRiskBadges {
+function Add-TelemetrySlayerRiskBadge {
     foreach ($action in $script:actionCatalog) {
         $checkBox = $window.FindName($action.CheckBox)
         if (-not $checkBox) { continue }
@@ -2042,7 +2049,7 @@ function Start-LogFile {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $script:currentLogPath = Join-Path $script:logFolderPath "$stamp.log"
      try {
-         Set-Content -LiteralPath $script:currentLogPath -Value "TelemetrySlayer v1.6.0 - $(Get-Date -Format 'o')" -Encoding UTF8 -ErrorAction Stop
+         Set-Content -LiteralPath $script:currentLogPath -Value "TelemetrySlayer v1.7.0 - $(Get-Date -Format 'o')" -Encoding UTF8 -ErrorAction Stop
          RefreshLogHistory
      } catch {
         $script:currentLogPath = $null
@@ -2094,7 +2101,7 @@ foreach ($name in $allIndicatorNames) {
     $allIndicators[$name] = $window.FindName($name)
 }
 
-Add-TelemetrySlayerRiskBadges
+Add-TelemetrySlayerRiskBadge
 
 function UpdateSearchFilter {
     $term = if ($txtSearch) { $txtSearch.Text.Trim() } else { '' }
@@ -2118,7 +2125,7 @@ function UpdateSearchFilter {
     }
 }
 
-function Get-SelectedTelemetrySlayerOptions {
+function Get-SelectedTelemetrySlayerOption {
     $opts = @{}
     foreach ($checkBox in $allCheckboxes) {
         $opts[$checkBox.Name] = ($checkBox.IsChecked -eq $true)
@@ -2128,7 +2135,7 @@ function Get-SelectedTelemetrySlayerOptions {
 
 function UpdatePreview {
     if (-not $txtPreview) { return }
-    $txtPreview.Text = Get-TelemetrySlayerPreview (Get-SelectedTelemetrySlayerOptions)
+    $txtPreview.Text = Get-TelemetrySlayerPreview (Get-SelectedTelemetrySlayerOption)
     $expPreview.Visibility = [System.Windows.Visibility]::Visible
     $expPreview.IsExpanded = $true
 }
@@ -2144,7 +2151,9 @@ function RefreshLogHistory {
             $script:historyFiles[$entry.Name] = $entry.Path
             [void]$lstHistory.Items.Add($entry)
         }
-    } catch { }
+    } catch {
+        Write-LogLine "WARN transcript history refresh failed - $($_.Exception.Message)"
+    }
 }
 
 $lstHistory.DisplayMemberPath = 'Name'
@@ -2658,7 +2667,7 @@ $btnApply.Add_Click({
 
         $backupManifest = [ordered]@{
             SchemaVersion = 1
-            ToolVersion = '1.6.0'
+            ToolVersion = '1.7.0'
             CreatedAt = (Get-Date).ToString('o')
             ComputerName = $env:COMPUTERNAME
             BackupPath = $backupPath
@@ -2680,7 +2689,7 @@ $btnApply.Add_Click({
 
         $restore = [ordered]@{
             SchemaVersion = 1
-            ToolVersion = '1.6.0'
+            ToolVersion = '1.7.0'
             CreatedAt = (Get-Date).ToString('o')
             ComputerName = $env:COMPUTERNAME
             Registry = [ordered]@{}
@@ -2694,7 +2703,7 @@ $btnApply.Add_Click({
         $resultsPath = Join-Path $runPath 'results.json'
         $runResults = [ordered]@{
             SchemaVersion = 1
-            ToolVersion = '1.6.0'
+            ToolVersion = '1.7.0'
             StartedAt = (Get-Date).ToString('o')
             ComputerName = $env:COMPUTERNAME
             Actions = [System.Collections.ArrayList]::new()

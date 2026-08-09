@@ -215,7 +215,7 @@ Describe 'TelemetrySlayer action catalog' {
                 Operations = @([pscustomobject]@{ Status = 'Drift'; Actual = 1; Target = 'HKLM:\Sample\Value'; Detail = 'Registry value differs' })
             })
         }
-        $comparison = Compare-TelemetrySlayerAudits -Baseline $baseline -Current $current
+        $comparison = Compare-TelemetrySlayerAudit -Baseline $baseline -Current $current
         $comparison.ChangedCount | Should -Be 1
         $comparison.DriftCount | Should -Be 1
         $comparison.Changes[0].BeforeStatus | Should -Be 'Pass'
