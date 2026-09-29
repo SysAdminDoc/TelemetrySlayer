@@ -2,6 +2,10 @@
 
 All notable changes to TelemetrySlayer will be documented in this file.
 
+## [v1.7.1] - 2026-09-28
+
+- Changed: README no longer offers the `irm | iex` one-liner, or a pasted `Invoke-WebRequest -OutFile` command. Quick Start now points at a direct download link for the latest release, with the checksum and run steps kept as plain instructions.
+
 ## [v1.7.0] - 2026-08-09
 
 - Added Windows build profiles and opt-in Windows 11 AI/Recall policy coverage with unsupported-build and SKU-aware handling.

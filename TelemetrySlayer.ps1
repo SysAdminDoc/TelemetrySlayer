@@ -1,5 +1,5 @@
 ﻿#Requires -Version 5.1
-# TelemetrySlayer v1.7.0
+# TelemetrySlayer v1.7.1
 # Disables Microsoft telemetry, data collection, and related bloat on Windows 10/11
 
 param(
@@ -329,7 +329,7 @@ function Get-TelemetrySlayerAudit {
     }
     [pscustomobject][ordered]@{
         SchemaVersion = 1
-        ToolVersion = '1.7.0'
+        ToolVersion = '1.7.1'
         GeneratedAt = (Get-Date).ToString('o')
         HostProfile = $hostProfile
         Summary = $summary
@@ -895,7 +895,7 @@ function Export-TelemetrySlayerPolicyBundle {
 
     $bundle = [ordered]@{
         SchemaVersion = 1
-        ToolVersion = '1.7.0'
+        ToolVersion = '1.7.1'
         GeneratedAt = (Get-Date).ToString('o')
         Description = 'Catalog-derived machine/user registry policy bundle for GPO, Intune, or offline review.'
         Files = @('machine.reg', 'user.reg', 'policy.csv', 'policy.json', 'TelemetrySlayer.admx', 'en-US\TelemetrySlayer.adml')
@@ -1209,7 +1209,7 @@ if ($Silent) {
             }
             $report = [ordered]@{
                 SchemaVersion = 1
-                ToolVersion = '1.7.0'
+                ToolVersion = '1.7.1'
                 Mode = 'Silent'
                 Preset = $Preset
                 WhatIf = [bool]$WhatIf
@@ -1302,7 +1302,7 @@ if ($Silent) {
     }
 
     $script:silentFailed = 0
-    SilentLog "TelemetrySlayer v1.7.0 - Silent mode - Preset: $Preset"
+    SilentLog "TelemetrySlayer v1.7.1 - Silent mode - Preset: $Preset"
     if ($WhatIf) { SilentLog "DRY RUN - no changes will be made" }
     SilentLog "Log: $silentLogPath"
 
@@ -1507,7 +1507,7 @@ Add-Type -Name Win -Namespace Native -MemberDefinition @'
 $xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="TelemetrySlayer v1.7.0" Width="820" Height="750"
+        Title="TelemetrySlayer v1.7.1" Width="820" Height="750"
         WindowStartupLocation="CenterScreen" Background="#0d1117"
         ResizeMode="CanResizeWithGrip" MinWidth="750" MinHeight="600">
     <Window.Resources>
@@ -2049,7 +2049,7 @@ function Start-LogFile {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $script:currentLogPath = Join-Path $script:logFolderPath "$stamp.log"
      try {
-         Set-Content -LiteralPath $script:currentLogPath -Value "TelemetrySlayer v1.7.0 - $(Get-Date -Format 'o')" -Encoding UTF8 -ErrorAction Stop
+         Set-Content -LiteralPath $script:currentLogPath -Value "TelemetrySlayer v1.7.1 - $(Get-Date -Format 'o')" -Encoding UTF8 -ErrorAction Stop
          RefreshLogHistory
      } catch {
         $script:currentLogPath = $null
@@ -2667,7 +2667,7 @@ $btnApply.Add_Click({
 
         $backupManifest = [ordered]@{
             SchemaVersion = 1
-            ToolVersion = '1.7.0'
+            ToolVersion = '1.7.1'
             CreatedAt = (Get-Date).ToString('o')
             ComputerName = $env:COMPUTERNAME
             BackupPath = $backupPath
@@ -2689,7 +2689,7 @@ $btnApply.Add_Click({
 
         $restore = [ordered]@{
             SchemaVersion = 1
-            ToolVersion = '1.7.0'
+            ToolVersion = '1.7.1'
             CreatedAt = (Get-Date).ToString('o')
             ComputerName = $env:COMPUTERNAME
             Registry = [ordered]@{}
@@ -2703,7 +2703,7 @@ $btnApply.Add_Click({
         $resultsPath = Join-Path $runPath 'results.json'
         $runResults = [ordered]@{
             SchemaVersion = 1
-            ToolVersion = '1.7.0'
+            ToolVersion = '1.7.1'
             StartedAt = (Get-Date).ToString('o')
             ComputerName = $env:COMPUTERNAME
             Actions = [System.Collections.ArrayList]::new()

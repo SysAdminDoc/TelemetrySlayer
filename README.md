@@ -2,7 +2,7 @@
 
 # TelemetrySlayer
 
-![Version](https://img.shields.io/badge/version-1.7.0-blue)
+![Version](https://img.shields.io/badge/version-1.7.1-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1+-5391FE?logo=powershell&logoColor=white)
@@ -26,34 +26,17 @@
 
 ## Quick Start (Verified Download)
 
-### Option 1: Download and Verify
+[**Download TelemetrySlayer.ps1**](https://github.com/SysAdminDoc/TelemetrySlayer/releases/latest/download/TelemetrySlayer.ps1) from the latest release.
 
-```powershell
-# Download the script
-Invoke-WebRequest -Uri https://github.com/SysAdminDoc/TelemetrySlayer/releases/latest/download/TelemetrySlayer.ps1 -OutFile TelemetrySlayer.ps1
+1. Read through the script before you run it, it's a single file.
+2. Compare `(Get-FileHash TelemetrySlayer.ps1 -Algorithm SHA256).Hash` against the SHA256 checksum in the release notes.
+3. Right-click the file and choose **Run with PowerShell**, or from a terminal: `powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1`
 
-# Verify SHA256 checksum against the value published in the GitHub Release
-(Get-FileHash -Algorithm SHA256 TelemetrySlayer.ps1).Hash
-
-# Run
-powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1
-```
-
-### Option 2: Manual Download
-
-1. Download `TelemetrySlayer.ps1` from the [latest release](https://github.com/SysAdminDoc/TelemetrySlayer/releases/latest)
-2. Compare `(Get-FileHash TelemetrySlayer.ps1).Hash` against the SHA256 in the release notes
-3. Right-click → **Run with PowerShell**, or from terminal: `powershell -ExecutionPolicy Bypass -File TelemetrySlayer.ps1`
-
-### Option 3: One-Liner (Advanced / Unattended)
-
-> **Trust warning:** `Invoke-Expression` executes arbitrary remote code. Only use this if you trust the source and accept the risk of running unverified scripts. For production or managed environments, use Option 1 or 2.
-
-```powershell
-irm https://raw.githubusercontent.com/SysAdminDoc/TelemetrySlayer/main/TelemetrySlayer.ps1 | iex
-```
+If Windows blocks the file because it came from the internet, open its Properties and check "Unblock" first.
 
 The script auto-elevates to Administrator. No dependencies, no modules, no installers — single file, fully turnkey.
+
+For RMM and silent-deployment options (NinjaOne, Datto RMM, PDQ Deploy, `-Silent`), see [Enterprise Deployment](#enterprise-deployment) below.
 
 ---
 
